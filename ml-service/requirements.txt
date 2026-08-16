@@ -16,5 +16,7 @@ requests>=2.31.0
 duckduckgo_search>=8.0.0
 supabase>=2.31.0
 python-dotenv>=1.0.0
+google-generativeai>=0.4.0
+
 
 

@@ -97,6 +97,21 @@ app.post('/api/resume/extract-profile', upload.single('file'), async (req, res) 
   }
 });
 
+// Job Search & Hybrid Ranking
+app.post('/api/jobs/search', async (req, res) => {
+  try {
+    const response = await axios.post(`${ML_SERVICE_URL}/api/jobs/search`, {
+      preferences: req.body.preferences,
+      decision_factors: req.body.decision_factors,
+      gemini_api_key: req.body.gemini_api_key || process.env.GEMINI_API_KEY || '',
+      groq_api_key: req.body.groq_api_key || process.env.GROQ_API_KEY || ''
+    });
+    res.json(response.data);
+  } catch (err) {
+    res.status(err.response?.status || 500).json({ error: err.message });
+  }
+});
+
 // Parsing Simulation (File Upload + Text)
 app.post('/api/parse/simulate', upload.single('file'), async (req, res) => {
   try {

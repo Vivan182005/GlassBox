@@ -66,43 +66,63 @@ export default function Header({ activeTab, setActiveTab, onLoadSample, groqApiK
           border: '1px solid var(--border-color)'
         }}>
           <button
-            onClick={() => setActiveTab('ats')}
+            onClick={() => setActiveTab('job_discovery')}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              padding: '7px 16px',
+              padding: '7px 14px',
               borderRadius: '6px',
               border: 'none',
               fontWeight: 600,
-              fontSize: '0.85rem',
+              fontSize: '0.82rem',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
-              background: activeTab === 'ats' ? '#374151' : 'transparent',
-              color: activeTab === 'ats' ? '#fff' : 'var(--text-secondary)'
+              background: activeTab === 'job_discovery' ? '#374151' : 'transparent',
+              color: activeTab === 'job_discovery' ? '#fff' : 'var(--text-secondary)'
             }}
           >
-            <Eye size={15} /> Dashboard 1: ATS Checker
+            <Sparkles size={14} color="var(--signal-green)" /> Dashboard 1: AI Job Discovery
           </button>
 
           <button
-            onClick={() => setActiveTab('bias')}
+            onClick={() => setActiveTab('ats_checker')}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              padding: '7px 16px',
+              padding: '7px 14px',
               borderRadius: '6px',
               border: 'none',
               fontWeight: 600,
-              fontSize: '0.85rem',
+              fontSize: '0.82rem',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
-              background: activeTab === 'bias' ? '#374151' : 'transparent',
-              color: activeTab === 'bias' ? '#fff' : 'var(--text-secondary)'
+              background: activeTab === 'ats_checker' || activeTab === 'ats' ? '#374151' : 'transparent',
+              color: activeTab === 'ats_checker' || activeTab === 'ats' ? '#fff' : 'var(--text-secondary)'
             }}
           >
-            <Scale size={15} /> Dashboard 2: Bias Auditor
+            <Eye size={14} /> Dashboard 2: ATS Checker
+          </button>
+
+          <button
+            onClick={() => setActiveTab('bias_auditor')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '7px 14px',
+              borderRadius: '6px',
+              border: 'none',
+              fontWeight: 600,
+              fontSize: '0.82rem',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              background: activeTab === 'bias_auditor' || activeTab === 'bias' ? '#374151' : 'transparent',
+              color: activeTab === 'bias_auditor' || activeTab === 'bias' ? '#fff' : 'var(--text-secondary)'
+            }}
+          >
+            <Scale size={14} /> Dashboard 3: Bias Auditor
           </button>
         </div>
 

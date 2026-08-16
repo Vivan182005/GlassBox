@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Header from './components/Header';
+import JobDiscovery from './components/Dashboard1/JobDiscovery';
 import ATSChecker from './components/Dashboard1/ATSChecker';
 import BiasAuditor from './components/Dashboard2/BiasAuditor';
 
@@ -21,7 +22,7 @@ Requirements:
 - Bachelor's degree in Computer Science or equivalent field.`;
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('ats');
+  const [activeTab, setActiveTab] = useState('job_discovery');
   const [resumeText, setResumeText] = useState('');
   const [jdText, setJdText] = useState(DEFAULT_SAMPLE_JD);
   const [companyName, setCompanyName] = useState('Stripe');
@@ -32,7 +33,7 @@ export default function App() {
   const [groqApiKey, setGroqApiKey] = useState('');
   const [autoFillSource, setAutoFillSource] = useState(null); // 'kaggle_sample' | 'your_resume' | null
 
-  // Dashboard 2 candidate feature state
+  // Dashboard 3 candidate feature state
   const [candidateFeatures, setCandidateFeatures] = useState({
     years_experience: 4.5,
     skill_count: 7,
@@ -80,7 +81,17 @@ export default function App() {
     }
   };
 
-  // Seamless Handoff from Dashboard 1 to Dashboard 2 with Auto-Fill
+  // Switch to ATS Checker from Job Discovery card
+  const handleSelectJobForATS = (job) => {
+    if (job) {
+      if (job.description) setJdText(job.description);
+      if (job.companyName) setCompanyName(job.companyName);
+      if (job.company) setCompanyName(job.company);
+    }
+    setActiveTab('ats_checker');
+  };
+
+  // Seamless Handoff from ATS Checker to Bias Auditor with Auto-Fill
   const handleHandoffToAudit = (extractedFeatures) => {
     if (extractedFeatures) {
       setCandidateFeatures(prev => ({
@@ -94,11 +105,10 @@ export default function App() {
         project_count: extractedFeatures.project_count ?? prev.project_count,
         graduation_year: extractedFeatures.graduation_year ?? prev.graduation_year,
         has_referral: extractedFeatures.has_referral ?? prev.has_referral
-        // Demographic proxy deliberately kept untouched/neutral for real uploaded resumes per disclosure
       }));
       setAutoFillSource('your_resume');
     }
-    setActiveTab('bias');
+    setActiveTab('bias_auditor');
   };
 
   return (
@@ -112,7 +122,13 @@ export default function App() {
       />
 
       <main style={{ flex: 1, maxWidth: '1280px', width: '100%', margin: '0 auto', padding: '24px' }}>
-        {activeTab === 'ats' ? (
+        {activeTab === 'job_discovery' ? (
+          <JobDiscovery
+            onSelectJobForATS={handleSelectJobForATS}
+            onHandoffToAudit={handleHandoffToAudit}
+            groqApiKey={groqApiKey}
+          />
+        ) : activeTab === 'ats_checker' || activeTab === 'ats' ? (
           <ATSChecker
             resumeText={resumeText}
             setResumeText={setResumeText}

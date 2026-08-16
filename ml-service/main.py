@@ -14,6 +14,7 @@ from parsing.ats_signatures import detect_ats_from_url, detect_ats_by_company_na
 from parsing.degradation_engine import extract_pdf_structure, extract_docx_text, simulate_degradation
 from parsing.profile_extractor import extract_candidate_profile
 from matching.groq_matcher import match_resume_to_jd
+from matching.job_discovery_service import job_discovery_engine
 from bias_model.model_trainer import trainer_instance
 from explainability.explainer import explainer_instance
 from explainability.fairness import calculate_fairness_metrics
@@ -40,6 +41,12 @@ class UrlDetectRequest(BaseModel):
 
 class CompanyDetectRequest(BaseModel):
     company_name: str
+    groq_api_key: Optional[str] = None
+
+class JobSearchRequest(BaseModel):
+    preferences: Dict[str, Any]
+    decision_factors: Optional[Dict[str, float]] = None
+    gemini_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
 
 class MatchRequest(BaseModel):
@@ -109,6 +116,14 @@ async def extract_profile_from_resume(
 
     profile_data = extract_candidate_profile(extracted_text, filename=filename, api_key_override=groq_api_key)
     return profile_data
+
+@app.post("/api/jobs/search")
+def search_and_rank_jobs_endpoint(req: JobSearchRequest):
+    return job_discovery_engine.search_and_rank_jobs(
+        preferences=req.preferences,
+        decision_factors=req.decision_factors,
+        api_key_override=req.gemini_api_key or req.groq_api_key
+    )
 
 @app.post("/api/parse/simulate")
 async def parse_and_simulate(

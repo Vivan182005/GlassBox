@@ -3,6 +3,7 @@ import json
 import re
 from typing import Dict, Any, Optional, List
 from groq import Groq
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,7 +21,7 @@ except Exception as e:
 
 def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_key_override: Optional[str] = None) -> Dict[str, Any]:
     """
-    Extracts structured candidate profile from raw resume text using Groq LLM.
+    Extracts structured candidate profile from raw resume text using Gemini AI (or Groq fallback).
     Strictly separates EXPLICITLY present facts from LLM INFERENCES.
     Saves metadata to Supabase DB when available.
     """
@@ -33,41 +34,63 @@ def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_k
             "consolidated_profile": {}
         }
 
-    api_key = (api_key_override or os.environ.get("GROQ_API_KEY", "")).strip()
+    gemini_key = (api_key_override or os.environ.get("GEMINI_API_KEY", "")).strip()
+    groq_key = (os.environ.get("GROQ_API_KEY", "")).strip()
 
-    if api_key:
+    system_prompt = (
+        "You are an expert HR-tech Applicant Tracking System auditor and candidate profiler. "
+        "Analyze the resume text and extract structured profile data. "
+        "CRITICAL REQUIREMENT: You MUST strictly distinguish EXPLICIT facts present in text from INFERRED estimations.\n\n"
+        "Return ONLY a valid JSON object matching this schema:\n"
+        "{\n"
+        '  "explicit_fields": {\n'
+        '    "full_name": "exact candidate name if present, else null",\n'
+        '    "years_experience": float (sum of explicit work durations), \n'
+        '    "skill_list": ["explicitly mentioned skills"],\n'
+        '    "college_name": "exact university/college name if present, else null",\n'
+        '    "college_tier": "Tier 1" (ONLY if explicitly IIT, NIT, BITS, Stanford, MIT, CMU, Harvard, UC Berkeley, Ivy League) else "Tier 2/3",\n'
+        '    "gpa": float (or null if not stated),\n'
+        '    "graduation_year": integer (e.g. 2023, 2027), \n'
+        '    "employment_gap_months": integer (explicit gaps between roles), \n'
+        '    "has_internship": boolean,\n'
+        '    "project_count": integer,\n'
+        '    "has_referral": false,\n'
+        '    "location": "city/country if stated, else null"\n'
+        '  },\n'
+        '  "inferred_fields": {\n'
+        '    "primary_role": "inferred job title (e.g. AI/ML Engineer, Software Engineer)",\n'
+        '    "seniority_level": "Entry Level" | "Mid Level" | "Senior",\n'
+        '    "top_domain": "Software Engineering" | "Data Science" | "Cloud/DevOps" | "Product",\n'
+        '    "suggested_alternative_roles": ["Alternative Role 1", "Alternative Role 2", "Alternative Role 3"]\n'
+        '  }\n'
+        "}\n"
+        "Do NOT hallucinate or fabricate facts. If a field is not in the text, mark explicit fields as null or 0."
+    )
+
+    explicit, inferred = None, None
+
+    # Priority 1: Gemini API
+    if gemini_key:
         try:
-            client = Groq(api_key=api_key)
-            system_prompt = (
-                "You are an expert HR-tech Applicant Tracking System auditor and candidate profiler. "
-                "Analyze the resume text and extract structured profile data. "
-                "CRITICAL REQUIREMENT: You MUST strictly distinguish EXPLICIT facts present in text from INFERRED estimations.\n\n"
-                "Return ONLY a valid JSON object matching this schema:\n"
-                "{\n"
-                '  "explicit_fields": {\n'
-                '    "full_name": "exact candidate name if present, else null",\n'
-                '    "years_experience": float (sum of explicit work durations), \n'
-                '    "skill_list": ["explicitly mentioned skills"],\n'
-                '    "college_name": "exact university/college name if present, else null",\n'
-                '    "college_tier": "Tier 1" (ONLY if explicitly IIT, NIT, BITS, Stanford, MIT, CMU, Harvard, UC Berkeley, Ivy League) else "Tier 2/3",\n'
-                '    "gpa": float (or null if not stated),\n'
-                '    "graduation_year": integer (e.g. 2023, 2027), \n'
-                '    "employment_gap_months": integer (explicit gaps between roles), \n'
-                '    "has_internship": boolean,\n'
-                '    "project_count": integer,\n'
-                '    "has_referral": false,\n'
-                '    "location": "city/country if stated, else null"\n'
-                '  },\n'
-                '  "inferred_fields": {\n'
-                '    "primary_role": "inferred job title (e.g. AI/ML Engineer, Full Stack Engineer)",\n'
-                '    "seniority_level": "Entry Level" | "Mid Level" | "Senior",\n'
-                '    "top_domain": "Software Engineering" | "Data Science" | "Cloud/DevOps" | "Product",\n'
-                '    "suggested_alternative_roles": ["Alternative Role 1", "Alternative Role 2", "Alternative Role 3"]\n'
-                '  }\n'
-                "}\n"
-                "Do NOT hallucinate or fabricate facts. If a field is not in the text, mark explicit fields as null or 0."
+            genai.configure(api_key=gemini_key)  # type: ignore
+            model = genai.GenerativeModel("gemini-1.5-flash")  # type: ignore
+            response = model.generate_content(
+                f"{system_prompt}\n\nRAW CANDIDATE RESUME TEXT:\n{clean_text[:4000]}"
             )
-            
+            raw_res = (response.text or "").strip()
+            # Extract json block if present
+            json_match = re.search(r"\{.*\}", raw_res, re.DOTALL)
+            if json_match:
+                extracted_json = json.loads(json_match.group(0))
+                explicit = extracted_json.get("explicit_fields", {})
+                inferred = extracted_json.get("inferred_fields", {})
+        except Exception as e:
+            print("Gemini candidate profile extraction failed:", e)
+
+    # Priority 2: Groq Fallback
+    if not explicit and groq_key:
+        try:
+            client = Groq(api_key=groq_key)
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[
@@ -77,17 +100,19 @@ def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_k
                 temperature=0.1,
                 response_format={"type": "json_object"}
             )
-            
             res_content = response.choices[0].message.content
             extracted_json = json.loads((res_content or "").strip())
             explicit = extracted_json.get("explicit_fields", {})
             inferred = extracted_json.get("inferred_fields", {})
-            
         except Exception as e:
-            print("Groq candidate profile extraction failed:", e)
-            explicit, inferred = _heuristic_extraction(clean_text)
-    else:
+            print("Groq candidate profile extraction fallback failed:", e)
+
+    # Priority 3: Rule-based Heuristics
+    if not explicit:
         explicit, inferred = _heuristic_extraction(clean_text)
+
+    explicit = explicit or {}
+    inferred = inferred or {}
 
     # Consolidated profile for model & feature compatibility
     consolidated = {
