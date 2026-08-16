@@ -3,8 +3,8 @@
     "ml-service",
     "data"
   ],
-  "venvPath": ".",
-  "venv": "ml-service/venv",
+  "venvPath": "ml-service",
+  "venv": "venv",
   "executionEnvironments": [
     {
       "root": "ml-service",
@@ -13,8 +13,9 @@
       ]
     }
   ],
-  "pythonVersion": "3.14",
+  "pythonVersion": "3.12",
   "pythonPlatform": "Darwin",
   "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
   "reportMissingTypeStubs": false
 }

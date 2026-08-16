@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Sparkles, Upload, Search, Briefcase, MapPin, Clock, DollarSign, Plus, X, ArrowRight, CheckCircle2, AlertCircle, FileText, ChevronRight, Sliders, ExternalLink, ShieldAlert } from 'lucide-react';
+import { Sparkles, Upload, Search, Briefcase, MapPin, Clock, DollarSign, X, ArrowRight, CheckCircle2, AlertCircle, FileText, ChevronRight, Sliders, ExternalLink, ShieldAlert, Code, Building2 } from 'lucide-react';
 import axios from 'axios';
+import SearchableMultiSelect from './SearchableMultiSelect';
 
 export default function JobDiscovery({
   onSelectJobForATS,
@@ -13,35 +14,40 @@ export default function JobDiscovery({
   const [loadingExtract, setLoadingExtract] = useState(false);
   const [extractedProfile, setExtractedProfile] = useState(null);
 
-  // Step 2: Interactive Preferences State
-  const [targetRoles, setTargetRoles] = useState(['Software Engineer', 'AI/ML Engineer']);
-  const [newRoleInput, setNewRoleInput] = useState('');
+  // Step 2: Interactive Search Taxonomy Preferences State (backed by Supabase)
+  const [maxTargetRoles, setMaxTargetRoles] = useState(5);
+  const [targetRoles, setTargetRoles] = useState([
+    { id: 1, name: 'Software Engineer', category: 'Software Engineering', is_ai_extracted: false },
+    { id: 2, name: 'Machine Learning Engineer', category: 'AI / Data Science', is_ai_extracted: false }
+  ]);
 
-  const [preferredLocations, setPreferredLocations] = useState(['Bangalore', 'Remote']);
-  const [newLocInput, setNewLocInput] = useState('');
+  const [preferredLocations, setPreferredLocations] = useState([
+    { id: 201, name: 'Bengaluru, Karnataka, India', city: 'Bengaluru', country: 'India', is_ai_extracted: false },
+    { id: 214, name: 'Remote (Worldwide)', city: 'Remote', country: 'Worldwide', is_ai_extracted: false }
+  ]);
 
-  const [employmentType, setEmploymentType] = useState('Both'); // Internship | Full-time | Both
-  const [workMode, setWorkMode] = useState('Any'); // Remote | Hybrid | On-site | Any
+  const [skillsList, setSkillsList] = useState([
+    { id: 101, name: 'Python', category: 'Programming Languages', is_ai_extracted: false },
+    { id: 104, name: 'React.js', category: 'Frontend Frameworks', is_ai_extracted: false },
+    { id: 106, name: 'SQL', category: 'Databases', is_ai_extracted: false },
+    { id: 108, name: 'Machine Learning', category: 'AI / Data Science', is_ai_extracted: false }
+  ]);
+
+  const [employmentType, setEmploymentType] = useState('Full-time');
+  const [workMode, setWorkMode] = useState('Any');
   const [experienceLevel, setExperienceLevel] = useState('0-1 years');
   const [yearsExperienceNum, setYearsExperienceNum] = useState(1.0);
-
-  const [skillsList, setSkillsList] = useState(['Python', 'React', 'SQL', 'Machine Learning']);
-  const [newSkillInput, setNewSkillInput] = useState('');
-
   const [minSalary, setMinSalary] = useState('');
-  const [postingAge, setPostingAge] = useState('7'); // days
-  const [companyPref, setCompanyPref] = useState('Any'); // Any | Startup | Mid-size | Enterprise
-  const [industryFilter, setIndustryFilter] = useState('Any');
+  const [postingAge, setPostingAge] = useState('7 days');
+  const [companyPref, setCompanyPref] = useState('Any');
 
-  // Decision Factor Weights (Multiple Options Control Panel)
+  // Decision Factor Weights
   const [decisionFactors, setDecisionFactors] = useState({
-    title_match: 0.25,
-    skill_match: 0.30,
+    title_match: 0.30,
+    skill_match: 0.40,
     location_match: 0.15,
     work_mode: 0.10,
-    experience: 0.10,
-    freshness: 0.05,
-    salary: 0.05
+    experience: 0.05
   });
 
   // Step 3: Search Results State
@@ -50,7 +56,7 @@ export default function JobDiscovery({
   const [searchResults, setSearchResults] = useState(null);
   const [selectedJobDetails, setSelectedJobDetails] = useState(null);
 
-  // Handle Resume File / Text Upload & Extraction
+  // Handle Resume File / Text Upload & AI Profile Extraction
   const handleExtractProfile = async (fileToUpload = fileObject, textToUpload = rawText) => {
     if (!fileToUpload && !textToUpload.trim()) {
       alert("Please upload a resume file (PDF/DOCX) or paste resume text.");
@@ -61,6 +67,7 @@ export default function JobDiscovery({
       const formData = new FormData();
       if (fileToUpload) formData.append('file', fileToUpload);
       if (textToUpload) formData.append('raw_text', textToUpload);
+      formData.append('max_roles', maxTargetRoles);
 
       const res = await axios.post('/api/resume/extract-profile', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -68,14 +75,18 @@ export default function JobDiscovery({
 
       setExtractedProfile(res.data);
       const explicit = res.data.explicit_fields || {};
-      const inferred = res.data.inferred_fields || {};
 
-      if (inferred.primary_role) {
-        const roles = [inferred.primary_role, ...(inferred.suggested_alternative_roles || [])].slice(0, 3);
-        setTargetRoles(roles);
+      // Map normalized Supabase taxonomy records returned from AI extraction
+      if (res.data.taxonomy_roles?.length) {
+        setTargetRoles(res.data.taxonomy_roles);
       }
-      if (explicit.skill_list?.length) setSkillsList(explicit.skill_list);
-      if (explicit.location) setPreferredLocations([explicit.location]);
+      if (res.data.taxonomy_skills?.length) {
+        setSkillsList(res.data.taxonomy_skills);
+      }
+      if (res.data.taxonomy_locations?.length) {
+        setPreferredLocations(res.data.taxonomy_locations);
+      }
+
       if (explicit.years_experience !== undefined) {
         setYearsExperienceNum(explicit.years_experience);
         if (explicit.years_experience <= 1) setExperienceLevel('0-1 years');
@@ -83,7 +94,7 @@ export default function JobDiscovery({
         else setExperienceLevel('3-5 years');
       }
       if (explicit.has_internship !== undefined) {
-        setEmploymentType(explicit.has_internship ? 'Both' : 'Full-time');
+        setEmploymentType(explicit.has_internship ? 'Internship' : 'Full-time');
       }
     } catch (err) {
       alert("Profile extraction failed. " + (err.response?.data?.detail || err.message));
@@ -94,22 +105,25 @@ export default function JobDiscovery({
 
   // Handle Live Job Search
   const handleSearchJobs = async () => {
+    if (targetRoles.length === 0) {
+      alert("Please select at least one Target Role from the database.");
+      return;
+    }
     setLoadingSearch(true);
     setSearchStatusMsg('Connecting to LinkedIn Live API...');
     try {
       const payload = {
         preferences: {
-          target_roles: targetRoles,
-          preferred_locations: preferredLocations,
+          target_roles: targetRoles.map((r) => r.name),
+          preferred_locations: preferredLocations.map((l) => l.name),
           employment_type: employmentType,
           work_mode: workMode,
           experience_level: experienceLevel,
           years_experience: yearsExperienceNum,
-          skills: skillsList,
+          skills: skillsList.map((s) => s.name),
           min_salary: minSalary ? parseFloat(minSalary) : 0.0,
-          max_posting_days: parseInt(postingAge),
-          company_preference: companyPref,
-          industry: industryFilter
+          max_posting_age: postingAge,
+          company_preference: companyPref
         },
         decision_factors: decisionFactors
       };
@@ -129,31 +143,6 @@ export default function JobDiscovery({
     }
   };
 
-  // Add/Remove Helpers
-  const addRole = () => {
-    if (newRoleInput.trim() && !targetRoles.includes(newRoleInput.trim())) {
-      setTargetRoles([...targetRoles, newRoleInput.trim()]);
-      setNewRoleInput('');
-    }
-  };
-  const removeRole = (r) => setTargetRoles(targetRoles.filter(role => role !== r));
-
-  const addLocation = () => {
-    if (newLocInput.trim() && !preferredLocations.includes(newLocInput.trim())) {
-      setPreferredLocations([...preferredLocations, newLocInput.trim()]);
-      setNewLocInput('');
-    }
-  };
-  const removeLocation = (l) => setPreferredLocations(preferredLocations.filter(loc => loc !== l));
-
-  const addSkill = () => {
-    if (newSkillInput.trim() && !skillsList.includes(newSkillInput.trim())) {
-      setSkillsList([...skillsList, newSkillInput.trim()]);
-      setNewSkillInput('');
-    }
-  };
-  const removeSkill = (s) => setSkillsList(skillsList.filter(sk => sk !== s));
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1200px', margin: '0 auto' }}>
       
@@ -162,12 +151,12 @@ export default function JobDiscovery({
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
           <Sparkles size={22} color="var(--signal-green)" />
           <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#f9fafb' }}>
-            AI Job Discovery & Intelligent Preference Matcher
+            AI Job Search & Database Taxonomy Preferences
           </h2>
-          <span className="badge badge-green">Live Provider Architecture</span>
+          <span className="badge badge-green">Supabase Backed Taxonomy</span>
         </div>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '850px', lineHeight: '1.5' }}>
-          Upload your resume to extract candidate job preferences, edit your target search parameters & decision factors, and discover matching opportunities.
+          Upload your resume to automatically extract candidate preferences normalized against our Supabase taxonomy, or search & select valid roles, skills, and locations.
         </p>
       </div>
 
@@ -218,7 +207,7 @@ export default function JobDiscovery({
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button className="btn-primary" onClick={() => handleExtractProfile()} disabled={loadingExtract}>
-              {loadingExtract ? 'Analyzing Profile with Gemini AI...' : 'Analyze Resume Profile'}
+              {loadingExtract ? 'Extracting & Mapping Taxonomy...' : 'Analyze & Map Resume'}
             </button>
           </div>
         </div>
@@ -228,201 +217,160 @@ export default function JobDiscovery({
       <div className="glass-panel" style={{ padding: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
           <h3 style={{ fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: '#f9fafb' }}>
-            <Sliders size={18} color="var(--signal-green)" /> 2. Your Job Search Preferences
+            <Sliders size={18} color="var(--signal-green)" /> 2. Searchable Taxonomy Preferences (Supabase DB)
           </h3>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            Editable candidate criteria used for live job provider querying & deterministic ranking
+            Searchable dropdowns querying database taxonomy records
           </span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-          
-          {/* Target Roles */}
-          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-              Target Roles:
-            </label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-              {targetRoles.map((role) => (
-                <span key={role} style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#6ee7b7', padding: '4px 10px', borderRadius: '16px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  {role}
-                  <X size={12} style={{ cursor: 'pointer' }} onClick={() => removeRole(role)} />
-                </span>
-              ))}
+        {/* Target Roles & Max Cap Selector */}
+        <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800 mb-5 flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <Briefcase className="w-4 h-4 text-emerald-400" />
+              <h4 className="text-sm font-semibold text-slate-200">Target Roles Configuration</h4>
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Add target role (e.g. Backend Developer)..."
-                value={newRoleInput}
-                onChange={(e) => setNewRoleInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addRole()}
-                style={{ fontSize: '0.8rem' }}
-              />
-              <button className="btn-secondary" onClick={addRole} style={{ padding: '4px 10px' }}><Plus size={14} /></button>
-            </div>
-          </div>
-
-          {/* Preferred Locations */}
-          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-              Preferred Locations:
-            </label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-              {preferredLocations.map((loc) => (
-                <span key={loc} style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', padding: '4px 10px', borderRadius: '16px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  {loc}
-                  <X size={12} style={{ cursor: 'pointer' }} onClick={() => removeLocation(loc)} />
-                </span>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Add location (e.g. Hyderabad)..."
-                value={newLocInput}
-                onChange={(e) => setNewLocInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addLocation()}
-                style={{ fontSize: '0.8rem' }}
-              />
-              <button className="btn-secondary" onClick={addLocation} style={{ padding: '4px 10px' }}><Plus size={14} /></button>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-400 font-medium">Number of Target Roles:</label>
+              <select
+                value={maxTargetRoles}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  setMaxTargetRoles(val);
+                  if (targetRoles.length > val) {
+                    setTargetRoles(targetRoles.slice(0, val));
+                  }
+                }}
+                className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 outline-none cursor-pointer"
+              >
+                <option value={1}>1 Role</option>
+                <option value={2}>2 Roles</option>
+                <option value={3}>3 Roles</option>
+                <option value={4}>4 Roles</option>
+                <option value={5}>5 Roles (Max)</option>
+              </select>
             </div>
           </div>
 
-          {/* Employment Type & Work Mode */}
-          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-              Employment Type & Work Mode:
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Type:</span>
-                <select className="input-field" value={employmentType} onChange={(e) => setEmploymentType(e.target.value)} style={{ fontSize: '0.8rem' }}>
-                  <option value="Internship">Internship</option>
-                  <option value="Full-time">Full-time</option>
-                  <option value="Both">Both</option>
-                </select>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Mode:</span>
-                <select className="input-field" value={workMode} onChange={(e) => setWorkMode(e.target.value)} style={{ fontSize: '0.8rem' }}>
-                  <option value="Any">Any</option>
-                  <option value="Remote">Remote</option>
-                  <option value="Hybrid">Hybrid</option>
-                  <option value="On-site">On-site</option>
-                </select>
-              </div>
-            </div>
+          <SearchableMultiSelect
+            label="Target Job Roles"
+            placeholder="Search database roles (e.g. Software Engineer, Machine Learning Engineer)..."
+            apiUrl="/api/job-roles"
+            selectedItems={targetRoles}
+            onItemsChange={setTargetRoles}
+            maxSelections={maxTargetRoles}
+            icon={Briefcase}
+            helpText="Select up to your specified role maximum from Supabase job_roles taxonomy."
+          />
+        </div>
+
+        {/* Skills & Locations Section */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+          <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+            <SearchableMultiSelect
+              label="Technical Skills"
+              placeholder="Search skills (e.g. Python, React, SQL, Docker)..."
+              apiUrl="/api/skills"
+              selectedItems={skillsList}
+              onItemsChange={setSkillsList}
+              icon={Code}
+              helpText="Search and select valid skill entries from Supabase skills taxonomy."
+            />
           </div>
 
-          {/* Skills Chips */}
-          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)', gridColumn: 'span 1' }}>
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-              Extracted Technical Skills:
-            </label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', maxHeight: '100px', overflowY: 'auto' }}>
-              {skillsList.map((skill) => (
-                <span key={skill} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '4px 10px', borderRadius: '16px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  {skill}
-                  <X size={12} style={{ cursor: 'pointer' }} onClick={() => removeSkill(skill)} />
-                </span>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Add skill (e.g. PyTorch)..."
-                value={newSkillInput}
-                onChange={(e) => setNewSkillInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addSkill()}
-                style={{ fontSize: '0.8rem' }}
-              />
-              <button className="btn-secondary" onClick={addSkill} style={{ padding: '4px 10px' }}><Plus size={14} /></button>
-            </div>
+          <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+            <SearchableMultiSelect
+              label="Preferred Locations"
+              placeholder="Search location (e.g. Bengaluru, San Francisco, Remote)..."
+              apiUrl="/api/locations"
+              selectedItems={preferredLocations}
+              onItemsChange={setPreferredLocations}
+              icon={MapPin}
+              helpText="Search cities, countries, or remote locations from Supabase locations taxonomy."
+            />
+          </div>
+        </div>
+
+        {/* Controlled Filter Dropdowns Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-slate-900/40 rounded-2xl border border-slate-800/80 mb-5">
+          {/* Employment Type */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-slate-400">Employment Type</label>
+            <select
+              value={employmentType}
+              onChange={(e) => setEmploymentType(e.target.value)}
+              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none cursor-pointer hover:border-slate-600"
+            >
+              <option value="Full-time">Full-time</option>
+              <option value="Internship">Internship</option>
+              <option value="Part-time">Part-time</option>
+              <option value="Contract">Contract</option>
+              <option value="Temporary">Temporary</option>
+              <option value="Apprenticeship">Apprenticeship</option>
+              <option value="Any">Any</option>
+            </select>
           </div>
 
-          {/* Experience, Salary & Posting Age Filters */}
-          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-              Experience & Posting Freshness:
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Max Posting Age:</span>
-                <select className="input-field" value={postingAge} onChange={(e) => setPostingAge(e.target.value)} style={{ fontSize: '0.8rem' }}>
-                  <option value="1">24 hours</option>
-                  <option value="3">3 days</option>
-                  <option value="7">7 days (Default)</option>
-                  <option value="14">14 days</option>
-                  <option value="30">30 days</option>
-                </select>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Company Size:</span>
-                <select className="input-field" value={companyPref} onChange={(e) => setCompanyPref(e.target.value)} style={{ fontSize: '0.8rem' }}>
-                  <option value="Any">Any</option>
-                  <option value="Startup">Startup</option>
-                  <option value="Mid-size">Mid-size</option>
-                  <option value="Enterprise">Enterprise</option>
-                </select>
-              </div>
-            </div>
+          {/* Work Mode */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-slate-400">Work Mode</label>
+            <select
+              value={workMode}
+              onChange={(e) => setWorkMode(e.target.value)}
+              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none cursor-pointer hover:border-slate-600"
+            >
+              <option value="Any">Any</option>
+              <option value="Remote">Remote</option>
+              <option value="Hybrid">Hybrid</option>
+              <option value="On-site">On-site</option>
+            </select>
           </div>
 
-          {/* Decision Factors Control Panel (Multiple Options) */}
-          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)', gridColumn: 'span 1' }}>
-            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--signal-green)', display: 'block', marginBottom: '8px' }}>
-              Match Decision Factor Weights:
-            </label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.78rem' }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                  <span>Skill Overlap Weight:</span>
-                  <strong>{Math.round(decisionFactors.skill_match * 100)}%</strong>
-                </div>
-                <input
-                  type="range"
-                  min="0.10"
-                  max="0.60"
-                  step="0.05"
-                  value={decisionFactors.skill_match}
-                  onChange={(e) => setDecisionFactors({ ...decisionFactors, skill_match: parseFloat(e.target.value) })}
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                  <span>Role Title Match Weight:</span>
-                  <strong>{Math.round(decisionFactors.title_match * 100)}%</strong>
-                </div>
-                <input
-                  type="range"
-                  min="0.10"
-                  max="0.50"
-                  step="0.05"
-                  value={decisionFactors.title_match}
-                  onChange={(e) => setDecisionFactors({ ...decisionFactors, title_match: parseFloat(e.target.value) })}
-                  style={{ width: '100%' }}
-                />
-              </div>
-            </div>
+          {/* Posting Freshness */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-slate-400">Maximum Posting Age</label>
+            <select
+              value={postingAge}
+              onChange={(e) => setPostingAge(e.target.value)}
+              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none cursor-pointer hover:border-slate-600"
+            >
+              <option value="24 hours">24 hours</option>
+              <option value="3 days">3 days</option>
+              <option value="7 days">7 days</option>
+              <option value="14 days">14 days</option>
+              <option value="30 days">30 days</option>
+              <option value="Any">Any</option>
+            </select>
           </div>
 
+          {/* Company Size */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-slate-400">Company Size</label>
+            <select
+              value={companyPref}
+              onChange={(e) => setCompanyPref(e.target.value)}
+              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none cursor-pointer hover:border-slate-600"
+            >
+              <option value="Any">Any</option>
+              <option value="Startup">Startup</option>
+              <option value="Small">Small</option>
+              <option value="Medium">Medium</option>
+              <option value="Large">Large</option>
+              <option value="Enterprise">Enterprise</option>
+            </select>
+          </div>
         </div>
 
         {/* Search Action Button */}
         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
           <button className="btn-primary" onClick={handleSearchJobs} disabled={loadingSearch} style={{ padding: '10px 24px', fontSize: '0.95rem' }}>
-            <Search size={16} /> {loadingSearch ? 'Searching Live Provider...' : 'Find Matching Jobs'}
+            <Search size={16} /> {loadingSearch ? 'Querying Provider...' : 'Find Matching Jobs'}
           </button>
         </div>
       </div>
 
-      {/* Step 3: Search Results Feed & Honest Provider Banner */}
+      {/* Step 3: Search Results Feed & Provider Status */}
       {searchResults && (
         <div className="glass-panel" style={{ padding: '24px' }}>
           

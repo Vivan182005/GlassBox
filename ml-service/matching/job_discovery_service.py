@@ -159,10 +159,10 @@ class JobDiscoveryService:
         target_roles = [r.lower() for r in (preferences.get("target_roles") or [])]
 
         df = decision_factors or {}
-        w_title = float(df.get("title_match", 0.30))
-        w_skills = float(df.get("skill_match", 0.40))
-        w_location = float(df.get("location_match", 0.15))
-        w_exp = float(df.get("experience", 0.15))
+        w_title = df.get("title_match", 0.30)
+        w_skills = df.get("skill_match", 0.40)
+        w_location = df.get("location_match", 0.15)
+        w_exp = df.get("experience", 0.15)
 
         ranked_jobs = []
         for job in normalized_jobs:

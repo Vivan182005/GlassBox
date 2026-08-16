@@ -23,10 +23,21 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
+// Helper for proxy errors
+const handleProxyError = (err, res, fallbackData = null) => {
+  console.error(`Gateway proxy error: ${err.message}`);
+  const statusCode = err.response?.status || 500;
+  const detail = err.response?.data || { error: err.message };
+  if (fallbackData !== null && statusCode === 500) {
+    return res.json(fallbackData);
+  }
+  return res.status(statusCode).json(detail);
+};
+
 // Health check
 app.get('/api/health', async (req, res) => {
   try {
-    const mlHealth = await axios.get(`${ML_SERVICE_URL}/api/health`, { timeout: 3000 });
+    const mlHealth = await axios.get(`${ML_SERVICE_URL}/api/health`, { timeout: 10000 });
     res.json({
       status: 'ok',
       gateway: 'Node.js Express Gateway',
@@ -41,23 +52,51 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Taxonomy Search Endpoints
+app.get('/api/job-roles', async (req, res) => {
+  try {
+    const response = await axios.get(`${ML_SERVICE_URL}/api/job-roles`, { params: req.query, timeout: 15000 });
+    res.json(response.data);
+  } catch (err) {
+    handleProxyError(err, res, []);
+  }
+});
+
+app.get('/api/skills', async (req, res) => {
+  try {
+    const response = await axios.get(`${ML_SERVICE_URL}/api/skills`, { params: req.query, timeout: 15000 });
+    res.json(response.data);
+  } catch (err) {
+    handleProxyError(err, res, []);
+  }
+});
+
+app.get('/api/locations', async (req, res) => {
+  try {
+    const response = await axios.get(`${ML_SERVICE_URL}/api/locations`, { params: req.query, timeout: 15000 });
+    res.json(response.data);
+  } catch (err) {
+    handleProxyError(err, res, []);
+  }
+});
+
 // Model Training Stats
 app.get('/api/model/stats', async (req, res) => {
   try {
-    const response = await axios.get(`${ML_SERVICE_URL}/api/model/stats`);
+    const response = await axios.get(`${ML_SERVICE_URL}/api/model/stats`, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
 // ATS Detection via URL
 app.post('/api/ats/detect', async (req, res) => {
   try {
-    const response = await axios.post(`${ML_SERVICE_URL}/api/ats/detect`, req.body);
+    const response = await axios.post(`${ML_SERVICE_URL}/api/ats/detect`, req.body, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
@@ -68,10 +107,10 @@ app.post('/api/ats/detect-company', async (req, res) => {
       ...req.body,
       groq_api_key: req.body.groq_api_key || process.env.GROQ_API_KEY
     };
-    const response = await axios.post(`${ML_SERVICE_URL}/api/ats/detect-company`, payload);
+    const response = await axios.post(`${ML_SERVICE_URL}/api/ats/detect-company`, payload, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
@@ -89,11 +128,12 @@ app.post('/api/resume/extract-profile', upload.single('file'), async (req, res) 
     formData.append('groq_api_key', req.body.groq_api_key || process.env.GROQ_API_KEY || '');
 
     const response = await axios.post(`${ML_SERVICE_URL}/api/resume/extract-profile`, formData, {
-      headers: formData.getHeaders()
+      headers: formData.getHeaders(),
+      timeout: 60000
     });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
@@ -105,10 +145,10 @@ app.post('/api/jobs/search', async (req, res) => {
       decision_factors: req.body.decision_factors,
       gemini_api_key: req.body.gemini_api_key || process.env.GEMINI_API_KEY || '',
       groq_api_key: req.body.groq_api_key || process.env.GROQ_API_KEY || ''
-    });
+    }, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
@@ -127,11 +167,12 @@ app.post('/api/parse/simulate', upload.single('file'), async (req, res) => {
     if (req.body.company_name) formData.append('company_name', req.body.company_name);
 
     const response = await axios.post(`${ML_SERVICE_URL}/api/parse/simulate`, formData, {
-      headers: formData.getHeaders()
+      headers: formData.getHeaders(),
+      timeout: 60000
     });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
@@ -148,11 +189,12 @@ app.post('/api/batch/parse', upload.single('file'), async (req, res) => {
     if (req.body.raw_text) formData.append('raw_text', req.body.raw_text);
 
     const response = await axios.post(`${ML_SERVICE_URL}/api/batch/parse`, formData, {
-      headers: formData.getHeaders()
+      headers: formData.getHeaders(),
+      timeout: 60000
     });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
@@ -163,10 +205,10 @@ app.post('/api/match/score', async (req, res) => {
       ...req.body,
       groq_api_key: req.body.groq_api_key || process.env.GROQ_API_KEY
     };
-    const response = await axios.post(`${ML_SERVICE_URL}/api/match/score`, payload);
+    const response = await axios.post(`${ML_SERVICE_URL}/api/match/score`, payload, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
@@ -177,30 +219,30 @@ app.post('/api/model/predict-explain', async (req, res) => {
       ...req.body,
       groq_api_key: req.body.groq_api_key || process.env.GROQ_API_KEY
     };
-    const response = await axios.post(`${ML_SERVICE_URL}/api/model/predict-explain`, payload);
+    const response = await axios.post(`${ML_SERVICE_URL}/api/model/predict-explain`, payload, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
 // Fairness Metrics
 app.get('/api/model/fairness', async (req, res) => {
   try {
-    const response = await axios.get(`${ML_SERVICE_URL}/api/model/fairness`);
+    const response = await axios.get(`${ML_SERVICE_URL}/api/model/fairness`, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res);
   }
 });
 
 // Sample Candidates
 app.get('/api/resumes/sample', async (req, res) => {
   try {
-    const response = await axios.get(`${ML_SERVICE_URL}/api/resumes/sample`);
+    const response = await axios.get(`${ML_SERVICE_URL}/api/resumes/sample`, { timeout: 30000 });
     res.json(response.data);
   } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.message });
+    handleProxyError(err, res, []);
   }
 });
 

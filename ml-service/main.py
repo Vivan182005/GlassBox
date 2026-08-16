@@ -18,6 +18,7 @@ from matching.job_discovery_service import job_discovery_engine
 from bias_model.model_trainer import trainer_instance
 from explainability.explainer import explainer_instance
 from explainability.fairness import calculate_fairness_metrics
+from parsing.taxonomy_service import taxonomy_service
 
 app = FastAPI(
     title="GlassBox ML Microservice",
@@ -82,6 +83,18 @@ def get_model_training_stats():
         trainer_instance.train_model()
     return trainer_instance.metrics
 
+@app.get("/api/job-roles")
+def get_job_roles(search: Optional[str] = "", limit: int = 20):
+    return taxonomy_service.search_job_roles(search or "", limit=limit)
+
+@app.get("/api/skills")
+def get_skills(search: Optional[str] = "", limit: int = 20):
+    return taxonomy_service.search_skills(search or "", limit=limit)
+
+@app.get("/api/locations")
+def get_locations(search: Optional[str] = "", limit: int = 20):
+    return taxonomy_service.search_locations(search or "", limit=limit)
+
 @app.post("/api/ats/detect")
 def detect_ats(req: UrlDetectRequest):
     return detect_ats_from_url(req.url)
@@ -94,7 +107,8 @@ def detect_ats_company(req: CompanyDetectRequest):
 async def extract_profile_from_resume(
     file: Optional[UploadFile] = File(None),
     raw_text: Optional[str] = Form(None),
-    groq_api_key: Optional[str] = Form(None)
+    groq_api_key: Optional[str] = Form(None),
+    max_roles: Optional[int] = Form(5)
 ):
     extracted_text = ""
     filename = "resume.pdf"
@@ -115,6 +129,27 @@ async def extract_profile_from_resume(
         raise HTTPException(status_code=400, detail="Please upload a PDF/DOCX resume file or provide text.")
 
     profile_data = extract_candidate_profile(extracted_text, filename=filename, api_key_override=groq_api_key)
+    
+    # Normalize extracted strings against Supabase taxonomy
+    inferred = profile_data.get("inferred_fields", {})
+    explicit = profile_data.get("explicit_fields", {})
+
+    raw_roles = []
+    if inferred.get("primary_role"):
+        raw_roles.append(inferred["primary_role"])
+    raw_roles.extend(inferred.get("suggested_alternative_roles", []))
+
+    raw_skills = explicit.get("skill_list", [])
+    raw_loc = explicit.get("location", "")
+
+    mapped_roles = taxonomy_service.normalize_and_map_roles(raw_roles, max_roles=max_roles or 5)
+    mapped_skills = taxonomy_service.normalize_and_map_skills(raw_skills, max_skills=10)
+    mapped_locations = taxonomy_service.normalize_and_map_locations(raw_loc)
+
+    profile_data["taxonomy_roles"] = mapped_roles
+    profile_data["taxonomy_skills"] = mapped_skills
+    profile_data["taxonomy_locations"] = mapped_locations
+
     return profile_data
 
 @app.post("/api/jobs/search")
