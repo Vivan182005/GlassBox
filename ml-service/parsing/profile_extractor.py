@@ -8,6 +8,30 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+def safe_float(val: Any, default: float = 0.0) -> float:
+    if val is None:
+        return default
+    try:
+        if isinstance(val, (int, float)):
+            return float(val)
+        match = re.search(r"(\d+(\.\d+)?)", str(val))
+        return float(match.group(1)) if match else default
+    except Exception:
+        return default
+
+def safe_int(val: Any, default: int = 0) -> int:
+    if val is None:
+        return default
+    try:
+        if isinstance(val, int):
+            return val
+        if isinstance(val, float):
+            return int(val)
+        match = re.search(r"\b(\d{4})\b", str(val)) or re.search(r"(\d+)", str(val))
+        return int(match.group(1)) if match else default
+    except Exception:
+        return default
+
 # Optional Supabase Client initialization
 supabase_client = None
 try:
@@ -103,7 +127,6 @@ def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_k
             res_content = response.choices[0].message.content
             extracted_json = json.loads((res_content or "").strip())
             explicit = extracted_json.get("explicit_fields", {})
-            inferred = extracted_json.get("inferred_fields", {})
         except Exception as e:
             print("Groq candidate profile extraction fallback failed:", e)
 
@@ -116,21 +139,21 @@ def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_k
 
     # Consolidated profile for model & feature compatibility
     consolidated = {
-        "full_name": explicit.get("full_name") or "Candidate",
-        "primary_role": inferred.get("primary_role") or "Software Engineer",
-        "years_experience": float(explicit.get("years_experience") or 2.0),
-        "skill_count": len(explicit.get("skill_list") or []),
-        "skill_list": explicit.get("skill_list") or ["Python", "JavaScript", "SQL"],
-        "college_name": explicit.get("college_name") or "University",
-        "college_tier": explicit.get("college_tier") or "Tier 2/3",
-        "employment_gap_months": int(explicit.get("employment_gap_months") or 0),
+        "full_name": str(explicit.get("full_name") or "Candidate"),
+        "primary_role": str(inferred.get("primary_role") or "Software Engineer"),
+        "years_experience": safe_float(explicit.get("years_experience"), 2.0),
+        "skill_count": len(explicit.get("skill_list") or []) if isinstance(explicit.get("skill_list"), list) else 3,
+        "skill_list": explicit.get("skill_list") if isinstance(explicit.get("skill_list"), list) else ["Python", "JavaScript", "SQL"],
+        "college_name": str(explicit.get("college_name") or "University"),
+        "college_tier": str(explicit.get("college_tier") or "Tier 2/3"),
+        "employment_gap_months": safe_int(explicit.get("employment_gap_months"), 0),
         "has_internship": bool(explicit.get("has_internship") if explicit.get("has_internship") is not None else True),
-        "gpa": float(explicit.get("gpa") or 3.5),
-        "project_count": int(explicit.get("project_count") or 2),
-        "graduation_year": int(explicit.get("graduation_year") or 2023),
+        "gpa": safe_float(explicit.get("gpa"), 3.5),
+        "project_count": safe_int(explicit.get("project_count"), 2),
+        "graduation_year": safe_int(explicit.get("graduation_year"), 2023),
         "has_referral": bool(explicit.get("has_referral") or False),
         "demographic_proxy": "Group B",
-        "location": explicit.get("location") or "Remote"
+        "location": str(explicit.get("location") or "Remote")
     }
 
     result = {
