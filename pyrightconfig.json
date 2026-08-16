@@ -1,0 +1,20 @@
+{
+  "include": [
+    "ml-service",
+    "data"
+  ],
+  "venvPath": ".",
+  "venv": "ml-service/venv",
+  "executionEnvironments": [
+    {
+      "root": "ml-service",
+      "extraPaths": [
+        "ml-service"
+      ]
+    }
+  ],
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Darwin",
+  "reportMissingImports": "none",
+  "reportMissingTypeStubs": false
+}

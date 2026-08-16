@@ -1,0 +1,229 @@
+{
+  "stripe": {
+    "detected": true,
+    "company_name": "Stripe",
+    "profile": {
+      "id": "greenhouse",
+      "name": "Greenhouse",
+      "patterns": [
+        "boards\\.greenhouse\\.io",
+        "job-boards\\.greenhouse\\.io",
+        "greenhouse\\.io"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": true,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Good column detection, but flattens table cells into unstructured rows and drops text attached to graphic icons."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://boards.greenhouse.io/stripe",
+    "message": "Verified Stripe uses Greenhouse via live ATS endpoint https://boards.greenhouse.io/stripe.",
+    "detected_url": "https://boards.greenhouse.io/stripe"
+  },
+  "airbnb": {
+    "detected": true,
+    "company_name": "Airbnb",
+    "profile": {
+      "id": "greenhouse",
+      "name": "Greenhouse",
+      "patterns": [
+        "boards\\.greenhouse\\.io",
+        "job-boards\\.greenhouse\\.io",
+        "greenhouse\\.io"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": true,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Good column detection, but flattens table cells into unstructured rows and drops text attached to graphic icons."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://boards.greenhouse.io/airbnb",
+    "message": "Verified Airbnb uses Greenhouse via live ATS endpoint https://boards.greenhouse.io/airbnb.",
+    "detected_url": "https://boards.greenhouse.io/airbnb"
+  },
+  "ibm": {
+    "detected": true,
+    "company_name": "IBM",
+    "profile": {
+      "id": "smartrecruiters",
+      "name": "SmartRecruiters",
+      "patterns": [
+        "jobs\\.smartrecruiters\\.com",
+        "smartrecruiters\\.com"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": false,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Modern parser with strong structural recognition, but flattens complex nested tables."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://jobs.smartrecruiters.com/ibm",
+    "message": "Verified IBM uses SmartRecruiters via live ATS endpoint https://jobs.smartrecruiters.com/ibm.",
+    "detected_url": "https://jobs.smartrecruiters.com/ibm"
+  },
+  "s": {
+    "detected": true,
+    "company_name": "S",
+    "profile": {
+      "id": "smartrecruiters",
+      "name": "SmartRecruiters",
+      "patterns": [
+        "jobs\\.smartrecruiters\\.com",
+        "smartrecruiters\\.com"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": false,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Modern parser with strong structural recognition, but flattens complex nested tables."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://jobs.smartrecruiters.com/s",
+    "message": "Verified S uses SmartRecruiters via live ATS endpoint https://jobs.smartrecruiters.com/s.",
+    "detected_url": "https://jobs.smartrecruiters.com/s"
+  },
+  "ib": {
+    "detected": true,
+    "company_name": "ib",
+    "profile": {
+      "id": "smartrecruiters",
+      "name": "SmartRecruiters",
+      "patterns": [
+        "jobs\\.smartrecruiters\\.com",
+        "smartrecruiters\\.com"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": false,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Modern parser with strong structural recognition, but flattens complex nested tables."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://jobs.smartrecruiters.com/ib",
+    "message": "Verified ib uses SmartRecruiters via live ATS endpoint https://jobs.smartrecruiters.com/ib.",
+    "detected_url": "https://jobs.smartrecruiters.com/ib"
+  },
+  "stri": {
+    "detected": true,
+    "company_name": "Stri",
+    "profile": {
+      "id": "smartrecruiters",
+      "name": "SmartRecruiters",
+      "patterns": [
+        "jobs\\.smartrecruiters\\.com",
+        "smartrecruiters\\.com"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": false,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Modern parser with strong structural recognition, but flattens complex nested tables."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://jobs.smartrecruiters.com/stri",
+    "message": "Verified Stri uses SmartRecruiters via live ATS endpoint https://jobs.smartrecruiters.com/stri.",
+    "detected_url": "https://jobs.smartrecruiters.com/stri"
+  },
+  "i": {
+    "detected": true,
+    "company_name": "i",
+    "profile": {
+      "id": "smartrecruiters",
+      "name": "SmartRecruiters",
+      "patterns": [
+        "jobs\\.smartrecruiters\\.com",
+        "smartrecruiters\\.com"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": false,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Modern parser with strong structural recognition, but flattens complex nested tables."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://jobs.smartrecruiters.com/i",
+    "message": "Verified i uses SmartRecruiters via live ATS endpoint https://jobs.smartrecruiters.com/i.",
+    "detected_url": "https://jobs.smartrecruiters.com/i"
+  },
+  "1. founder's office intern \u2014 outbox labs": {
+    "detected": true,
+    "company_name": "1. Founder's Office Intern \u2014 Outbox Labs",
+    "profile": {
+      "id": "smartrecruiters",
+      "name": "SmartRecruiters",
+      "patterns": [
+        "jobs\\.smartrecruiters\\.com",
+        "smartrecruiters\\.com"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": false,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Modern parser with strong structural recognition, but flattens complex nested tables."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://jobs.smartrecruiters.com/1foundersofficeinternoutboxlabs",
+    "message": "Verified 1. Founder's Office Intern \u2014 Outbox Labs uses SmartRecruiters via live ATS endpoint https://jobs.smartrecruiters.com/1foundersofficeinternoutboxlabs.",
+    "detected_url": "https://jobs.smartrecruiters.com/1foundersofficeinternoutboxlabs"
+  },
+  "founder's office intern \u2014 outbox labs": {
+    "detected": true,
+    "company_name": "Founder's Office Intern \u2014 Outbox Labs",
+    "profile": {
+      "id": "smartrecruiters",
+      "name": "SmartRecruiters",
+      "patterns": [
+        "jobs\\.smartrecruiters\\.com",
+        "smartrecruiters\\.com"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": false,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Modern parser with strong structural recognition, but flattens complex nested tables."
+      }
+    },
+    "confidence": 0.95,
+    "source_tier": "tier1",
+    "badge_label": "Verified Live URL: https://jobs.smartrecruiters.com/foundersofficeinternoutboxlabs",
+    "message": "Verified Founder's Office Intern \u2014 Outbox Labs uses SmartRecruiters via live ATS endpoint https://jobs.smartrecruiters.com/foundersofficeinternoutboxlabs.",
+    "detected_url": "https://jobs.smartrecruiters.com/foundersofficeinternoutboxlabs"
+  }
+}

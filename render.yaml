@@ -1,0 +1,39 @@
+services:
+  # 1. Node.js Express API Gateway
+  - type: web
+    name: glassbox-gateway
+    env: node
+    region: singapore # or oregon, frankfurt, etc.
+    rootDir: gateway
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 5001
+      - key: ML_SERVICE_URL
+        fromService:
+          type: web
+          name: glassbox-ml-service
+          property: url
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+
+  # 2. Python FastAPI ML Service
+  - type: web
+    name: glassbox-ml-service
+    env: python
+    region: singapore
+    rootDir: ml-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
