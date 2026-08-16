@@ -68,6 +68,7 @@ export default function JobDiscovery({
       if (fileToUpload) formData.append('file', fileToUpload);
       if (textToUpload) formData.append('raw_text', textToUpload);
       formData.append('max_roles', maxTargetRoles);
+      if (groqApiKey) formData.append('groq_api_key', groqApiKey);
 
       const res = await axios.post('/api/resume/extract-profile', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -87,13 +88,15 @@ export default function JobDiscovery({
         setPreferredLocations(res.data.taxonomy_locations);
       }
 
-      if (explicit.years_experience !== undefined) {
-        setYearsExperienceNum(explicit.years_experience);
-        if (explicit.years_experience <= 1) setExperienceLevel('0-1 years');
-        else if (explicit.years_experience <= 3) setExperienceLevel('1-3 years');
-        else setExperienceLevel('3-5 years');
+      if (explicit.years_experience !== undefined && explicit.years_experience !== null) {
+        const yExp = parseFloat(explicit.years_experience) || 0;
+        setYearsExperienceNum(yExp);
+        if (yExp <= 1) setExperienceLevel('0-1 years');
+        else if (yExp <= 3) setExperienceLevel('1-3 years');
+        else if (yExp <= 5) setExperienceLevel('3-5 years');
+        else setExperienceLevel('5+ years');
       }
-      if (explicit.has_internship !== undefined) {
+      if (explicit.has_internship !== undefined && explicit.has_internship !== null) {
         setEmploymentType(explicit.has_internship ? 'Internship' : 'Full-time');
       }
     } catch (err) {
@@ -211,6 +214,40 @@ export default function JobDiscovery({
             </button>
           </div>
         </div>
+
+        {/* AI Extracted Profile Confirmation Banner */}
+        {extractedProfile && (
+          <div style={{
+            marginTop: '16px',
+            padding: '14px 18px',
+            background: 'rgba(16, 185, 129, 0.08)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            borderRadius: '10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 size={18} color="var(--signal-green)" />
+                <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--signal-green)' }}>
+                  Resume Analyzed Successfully — Taxonomy Preferences Mapped!
+                </span>
+              </div>
+              {extractedProfile.explicit_fields?.full_name && (
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', background: 'rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: '6px' }}>
+                  Candidate: {extractedProfile.explicit_fields.full_name}
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <span><strong>Primary Role:</strong> {extractedProfile.inferred_fields?.primary_role || 'Software Engineer'}</span>
+              <span><strong>Experience:</strong> {extractedProfile.explicit_fields?.years_experience || 0} years</span>
+              <span><strong>College:</strong> {extractedProfile.explicit_fields?.college_name || 'N/A'} ({extractedProfile.explicit_fields?.college_tier || 'Tier 2/3'})</span>
+              <span><strong>Extracted Skills Count:</strong> {extractedProfile.explicit_fields?.skill_list?.length || 0}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Step 2: Interactive Search Preferences Editor */}

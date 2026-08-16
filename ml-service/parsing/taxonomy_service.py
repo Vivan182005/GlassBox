@@ -93,19 +93,18 @@ class TaxonomyService:
 
     @staticmethod
     def normalize_and_map_roles(raw_roles: List[str], max_roles: int = 5) -> List[Dict[str, Any]]:
-        """Maps arbitrary extracted role strings to nearest Supabase taxonomy records."""
+        """Maps arbitrary extracted role strings to nearest Supabase taxonomy records or custom extracted items."""
         mapped = []
-        seen_ids = set()
+        seen_names = set()
         all_db_roles = TaxonomyService.search_job_roles("", limit=100)
 
         for raw in raw_roles:
             if len(mapped) >= max_roles:
                 break
             raw_clean = raw.strip().lower()
-            if not raw_clean:
+            if not raw_clean or raw_clean in seen_names:
                 continue
 
-            # Exact or substring match
             best_match = None
             for db_role in all_db_roles:
                 db_norm = db_role["normalized_name"].lower()
@@ -114,7 +113,6 @@ class TaxonomyService:
                     break
             
             if not best_match and all_db_roles:
-                # Token match fallback
                 tokens = set(re.findall(r"\w+", raw_clean))
                 for db_role in all_db_roles:
                     db_tokens = set(re.findall(r"\w+", db_role["normalized_name"]))
@@ -122,39 +120,39 @@ class TaxonomyService:
                         best_match = db_role
                         break
 
-            if best_match and best_match["id"] not in seen_ids:
-                seen_ids.add(best_match["id"])
+            if best_match:
+                if best_match["name"].lower() not in seen_names:
+                    seen_names.add(best_match["name"].lower())
+                    mapped.append({
+                        "id": best_match["id"],
+                        "name": best_match["name"],
+                        "category": best_match.get("category"),
+                        "is_ai_extracted": True
+                    })
+            else:
+                role_name = raw.strip().title()
+                seen_names.add(role_name.lower())
                 mapped.append({
-                    "id": best_match["id"],
-                    "name": best_match["name"],
-                    "category": best_match.get("category"),
+                    "id": f"ext_role_{len(mapped)+1}",
+                    "name": role_name,
+                    "category": "Extracted Role",
                     "is_ai_extracted": True
                 })
-
-        # Ensure at least 1 default if unmapped
-        if not mapped and all_db_roles:
-            default = all_db_roles[0]
-            mapped.append({
-                "id": default["id"],
-                "name": default["name"],
-                "category": default.get("category"),
-                "is_ai_extracted": True
-            })
 
         return mapped[:max_roles]
 
     @staticmethod
-    def normalize_and_map_skills(raw_skills: List[str], max_skills: int = 10) -> List[Dict[str, Any]]:
-        """Maps arbitrary extracted skill strings to nearest Supabase taxonomy records."""
+    def normalize_and_map_skills(raw_skills: List[str], max_skills: int = 15) -> List[Dict[str, Any]]:
+        """Maps arbitrary extracted skill strings to nearest Supabase taxonomy records or custom extracted items."""
         mapped = []
-        seen_ids = set()
+        seen_names = set()
         all_db_skills = TaxonomyService.search_skills("", limit=100)
 
         for raw in raw_skills:
             if len(mapped) >= max_skills:
                 break
             raw_clean = raw.strip().lower()
-            if not raw_clean:
+            if not raw_clean or raw_clean in seen_names:
                 continue
 
             best_match = None
@@ -164,21 +162,22 @@ class TaxonomyService:
                     best_match = db_skill
                     break
 
-            if best_match and best_match["id"] not in seen_ids:
-                seen_ids.add(best_match["id"])
+            if best_match:
+                if best_match["name"].lower() not in seen_names:
+                    seen_names.add(best_match["name"].lower())
+                    mapped.append({
+                        "id": best_match["id"],
+                        "name": best_match["name"],
+                        "category": best_match.get("category"),
+                        "is_ai_extracted": True
+                    })
+            else:
+                skill_name = raw.strip()
+                seen_names.add(skill_name.lower())
                 mapped.append({
-                    "id": best_match["id"],
-                    "name": best_match["name"],
-                    "category": best_match.get("category"),
-                    "is_ai_extracted": True
-                })
-
-        if not mapped and all_db_skills:
-            for s in all_db_skills[:3]:
-                mapped.append({
-                    "id": s["id"],
-                    "name": s["name"],
-                    "category": s.get("category"),
+                    "id": f"ext_skill_{len(mapped)+1}",
+                    "name": skill_name,
+                    "category": "Extracted Skill",
                     "is_ai_extracted": True
                 })
 
@@ -186,7 +185,7 @@ class TaxonomyService:
 
     @staticmethod
     def normalize_and_map_locations(raw_location: str) -> List[Dict[str, Any]]:
-        """Maps raw location string to nearest Supabase location record."""
+        """Maps raw location string to nearest Supabase location record or custom extracted item."""
         all_locs = TaxonomyService.search_locations("", limit=100)
         raw_clean = (raw_location or "").strip().lower()
 
@@ -202,15 +201,15 @@ class TaxonomyService:
                         "is_ai_extracted": True
                     }]
 
-        if all_locs:
-            default = all_locs[0]
+            loc_name = raw_location.strip().title()
             return [{
-                "id": default["id"],
-                "name": default["name"],
-                "city": default.get("city"),
-                "country": default.get("country"),
+                "id": "ext_loc_1",
+                "name": loc_name,
+                "city": loc_name,
+                "country": "",
                 "is_ai_extracted": True
             }]
+
         return []
 
 taxonomy_service = TaxonomyService()
