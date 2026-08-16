@@ -113,12 +113,23 @@ GENERIC_ATS_PROFILE = {
     }
 }
 
-CACHE_FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "ats_company_cache.json")
+def get_cache_file_path() -> str:
+    possible_paths = [
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ats_company_cache.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "ats_company_cache.json"),
+        os.path.join(os.getcwd(), "data", "ats_company_cache.json"),
+        os.path.join(os.getcwd(), "ml-service", "data", "ats_company_cache.json")
+    ]
+    for p in possible_paths:
+        if os.path.exists(p):
+            return p
+    return possible_paths[0]
 
 def load_company_cache() -> Dict[str, Any]:
-    if os.path.exists(CACHE_FILE_PATH):
+    cache_path = get_cache_file_path()
+    if os.path.exists(cache_path):
         try:
-            with open(CACHE_FILE_PATH, "r", encoding="utf-8") as f:
+            with open(cache_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -126,8 +137,9 @@ def load_company_cache() -> Dict[str, Any]:
 
 def save_company_cache(cache_data: Dict[str, Any]):
     try:
-        os.makedirs(os.path.dirname(CACHE_FILE_PATH), exist_ok=True)
-        with open(CACHE_FILE_PATH, "w", encoding="utf-8") as f:
+        cache_path = get_cache_file_path()
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cache_data, f, indent=2)
     except Exception as e:
         print("Failed to save ATS company cache:", e)

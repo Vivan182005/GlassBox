@@ -239,10 +239,18 @@ def get_fairness_audit():
 
 @app.get("/api/resumes/sample")
 def get_sample_resumes():
-    base_dir = os.path.dirname(os.path.dirname(__file__))
-    data_path = os.path.join(base_dir, "data", "cached_resumes.json")
-    if os.path.exists(data_path):
-        with open(data_path, "r", encoding="utf-8") as f:
-            candidates = json.load(f)
-            return candidates[:25]
+    possible_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cached_resumes.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cached_resumes.json"),
+        os.path.join(os.getcwd(), "data", "cached_resumes.json"),
+        os.path.join(os.getcwd(), "ml-service", "data", "cached_resumes.json")
+    ]
+    for p in possible_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    candidates = json.load(f)
+                    return candidates[:25]
+            except Exception:
+                pass
     return []

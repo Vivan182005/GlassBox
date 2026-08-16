@@ -23,8 +23,18 @@ FEATURE_NAMES = [
 class BiasModelTrainer:
     def __init__(self, data_path: Optional[str] = None):
         if not data_path:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            data_path = os.path.join(base_dir, "data", "cached_resumes.json")
+            possible_paths = [
+                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cached_resumes.json"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "cached_resumes.json"),
+                os.path.join(os.getcwd(), "data", "cached_resumes.json"),
+                os.path.join(os.getcwd(), "ml-service", "data", "cached_resumes.json")
+            ]
+            for p in possible_paths:
+                if os.path.exists(p):
+                    data_path = p
+                    break
+            if not data_path:
+                data_path = possible_paths[0]
         self.data_path = data_path
         self.model = None
         self.feature_names = FEATURE_NAMES
@@ -35,8 +45,11 @@ class BiasModelTrainer:
         
     def load_data(self):
         if os.path.exists(self.data_path):
-            with open(self.data_path, "r", encoding="utf-8") as f:
-                self.dataset = json.load(f)
+            try:
+                with open(self.data_path, "r", encoding="utf-8") as f:
+                    self.dataset = json.load(f)
+            except Exception:
+                self.dataset = []
         else:
             self.dataset = []
             
