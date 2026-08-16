@@ -225,14 +225,14 @@ export default function JobDiscovery({
         </div>
 
         {/* Target Roles & Max Cap Selector */}
-        <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800 mb-5 flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <Briefcase className="w-4 h-4 text-emerald-400" />
-              <h4 className="text-sm font-semibold text-slate-200">Target Roles Configuration</h4>
+        <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Briefcase size={16} color="var(--signal-green)" />
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>Target Roles Configuration</h4>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-400 font-medium">Number of Target Roles:</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Number of Target Roles:</label>
               <select
                 value={maxTargetRoles}
                 onChange={(e) => {
@@ -242,7 +242,8 @@ export default function JobDiscovery({
                     setTargetRoles(targetRoles.slice(0, val));
                   }
                 }}
-                className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 outline-none cursor-pointer"
+                className="input-field"
+                style={{ width: 'auto', padding: '4px 10px', fontSize: '0.8rem' }}
               >
                 <option value={1}>1 Role</option>
                 <option value={2}>2 Roles</option>
@@ -266,8 +267,8 @@ export default function JobDiscovery({
         </div>
 
         {/* Skills & Locations Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-          <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <SearchableMultiSelect
               label="Technical Skills"
               placeholder="Search skills (e.g. Python, React, SQL, Docker)..."
@@ -279,7 +280,7 @@ export default function JobDiscovery({
             />
           </div>
 
-          <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <SearchableMultiSelect
               label="Preferred Locations"
               placeholder="Search location (e.g. Bengaluru, San Francisco, Remote)..."
@@ -293,14 +294,15 @@ export default function JobDiscovery({
         </div>
 
         {/* Controlled Filter Dropdowns Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-slate-900/40 rounded-2xl border border-slate-800/80 mb-5">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '20px' }}>
           {/* Employment Type */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400">Employment Type</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Employment Type</label>
             <select
               value={employmentType}
               onChange={(e) => setEmploymentType(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none cursor-pointer hover:border-slate-600"
+              className="input-field"
+              style={{ padding: '6px 10px', fontSize: '0.82rem' }}
             >
               <option value="Full-time">Full-time</option>
               <option value="Internship">Internship</option>
@@ -313,12 +315,13 @@ export default function JobDiscovery({
           </div>
 
           {/* Work Mode */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400">Work Mode</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Work Mode</label>
             <select
               value={workMode}
               onChange={(e) => setWorkMode(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none cursor-pointer hover:border-slate-600"
+              className="input-field"
+              style={{ padding: '6px 10px', fontSize: '0.82rem' }}
             >
               <option value="Any">Any</option>
               <option value="Remote">Remote</option>
@@ -328,12 +331,13 @@ export default function JobDiscovery({
           </div>
 
           {/* Posting Freshness */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400">Maximum Posting Age</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Maximum Posting Age</label>
             <select
               value={postingAge}
               onChange={(e) => setPostingAge(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none cursor-pointer hover:border-slate-600"
+              className="input-field"
+              style={{ padding: '6px 10px', fontSize: '0.82rem' }}
             >
               <option value="24 hours">24 hours</option>
               <option value="3 days">3 days</option>
@@ -345,12 +349,13 @@ export default function JobDiscovery({
           </div>
 
           {/* Company Size */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-400">Company Size</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Company Size</label>
             <select
               value={companyPref}
               onChange={(e) => setCompanyPref(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none cursor-pointer hover:border-slate-600"
+              className="input-field"
+              style={{ padding: '6px 10px', fontSize: '0.82rem' }}
             >
               <option value="Any">Any</option>
               <option value="Startup">Startup</option>

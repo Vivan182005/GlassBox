@@ -60,7 +60,7 @@ export default function SearchableMultiSelect({
     }
     // Avoid duplicate selection by ID or Name
     const exists = selectedItems.some(
-      (s) => s.id === item.id || s.name.toLowerCase() === item.name.toLowerCase()
+      (s) => (s.id && s.id === item.id) || s.name.toLowerCase() === item.name.toLowerCase()
     );
     if (exists) return;
 
@@ -83,38 +83,75 @@ export default function SearchableMultiSelect({
   const isMaxReached = maxSelections && selectedItems.length >= maxSelections;
 
   return (
-    <div className="flex flex-col gap-2 w-full text-slate-800" ref={dropdownRef}>
-      <div className="flex justify-between items-center">
-        <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-          {IconComponent && <IconComponent className="w-4 h-4 text-slate-500" />}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', position: 'relative' }} ref={dropdownRef}>
+      {/* Label Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {IconComponent && <IconComponent size={15} style={{ color: 'var(--signal-green)' }} />}
           {label}
         </label>
         {maxSelections && (
-          <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+          <span style={{
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            color: isMaxReached ? 'var(--signal-amber)' : 'var(--text-muted)',
+            background: 'rgba(255,255,255,0.06)',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)'
+          }}>
             {selectedItems.length} / {maxSelections} max
           </span>
         )}
       </div>
 
       {/* Selected Chips Area */}
-      <div className="flex flex-wrap gap-2 min-h-[42px] p-2 bg-slate-50/80 border border-slate-200 rounded-xl transition-all">
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '6px',
+        minHeight: '44px',
+        padding: '8px',
+        background: 'rgba(0, 0, 0, 0.4)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        alignItems: 'center'
+      }}>
         {selectedItems.length === 0 ? (
-          <span className="text-xs text-slate-400 italic self-center px-1">
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '4px' }}>
             No items selected yet. Search below to add from database.
           </span>
         ) : (
           selectedItems.map((item) => (
             <span
-              key={item.id}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg shadow-sm border transition-all ${
-                item.is_ai_extracted
-                  ? 'bg-amber-50 text-amber-900 border-amber-200'
-                  : 'bg-white text-slate-800 border-slate-200'
-              }`}
+              key={item.id || item.name}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                borderRadius: '6px',
+                background: item.is_ai_extracted ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+                border: item.is_ai_extracted ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid var(--border-color)',
+                color: item.is_ai_extracted ? 'var(--signal-amber)' : 'var(--text-primary)'
+              }}
             >
               {item.is_ai_extracted && (
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 text-[10px] uppercase font-bold bg-amber-200/70 text-amber-800 rounded">
-                  <Sparkles className="w-2.5 h-2.5" />
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '2px',
+                  padding: '1px 4px',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  background: 'rgba(245, 158, 11, 0.3)',
+                  color: '#fbbf24',
+                  borderRadius: '3px'
+                }}>
+                  <Sparkles size={10} />
                   AI
                 </span>
               )}
@@ -122,25 +159,47 @@ export default function SearchableMultiSelect({
               <button
                 type="button"
                 onClick={() => handleRemoveItem(item.id)}
-                className="p-0.5 hover:bg-slate-200/60 rounded-full transition-colors text-slate-400 hover:text-slate-700"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '2px',
+                  borderRadius: '50%',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--signal-red)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
                 title="Remove selection"
               >
-                <X className="w-3 h-3" />
+                <X size={13} />
               </button>
             </span>
           ))
         )}
       </div>
 
-      {/* Dropdown Input Area */}
-      <div className="relative">
+      {/* Dropdown Search Input */}
+      <div style={{ position: 'relative', width: '100%' }}>
         <div
           onClick={() => !isMaxReached && setIsOpen(true)}
-          className={`flex items-center border bg-white rounded-xl px-3.5 py-2.5 shadow-sm transition-all cursor-pointer ${
-            isOpen ? 'ring-2 ring-indigo-500/20 border-indigo-500' : 'border-slate-200 hover:border-slate-300'
-          } ${isMaxReached ? 'bg-slate-100 cursor-not-allowed opacity-75' : ''}`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            background: isMaxReached ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.5)',
+            border: isOpen ? '1px solid var(--border-focus)' : '1px solid var(--border-color)',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            cursor: isMaxReached ? 'not-allowed' : 'pointer',
+            opacity: isMaxReached ? 0.6 : 1,
+            boxShadow: isOpen ? '0 0 0 2px rgba(255, 255, 255, 0.1)' : 'none',
+            transition: 'all 0.2s ease'
+          }}
         >
-          <Search className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+          <Search size={15} style={{ color: 'var(--text-secondary)', marginRight: '8px', flexShrink: 0 }} />
           <input
             type="text"
             value={query}
@@ -151,54 +210,91 @@ export default function SearchableMultiSelect({
             }}
             onFocus={() => setIsOpen(true)}
             placeholder={isMaxReached ? `Limit of ${maxSelections} reached` : placeholder}
-            className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 outline-none"
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              fontSize: '0.85rem',
+              color: 'var(--text-primary)',
+              fontFamily: 'var(--font-sans)'
+            }}
           />
           {loading ? (
-            <Loader2 className="w-4 h-4 text-indigo-500 animate-spin ml-2 shrink-0" />
+            <Loader2 size={15} style={{ color: 'var(--signal-green)', marginLeft: '8px', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
           ) : (
-            <ChevronDown className={`w-4 h-4 text-slate-400 ml-2 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown size={15} style={{
+              color: 'var(--text-secondary)',
+              marginLeft: '8px',
+              transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s ease',
+              flexShrink: 0
+            }} />
           )}
         </div>
 
-        {/* Dropdown Results List */}
+        {/* Dropdown Options Box */}
         {isOpen && (
-          <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto divide-y divide-slate-100 animate-in fade-in slide-in-from-top-2 duration-150">
+          <div style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            background: '#111827',
+            border: '1px solid var(--border-color)',
+            borderRadius: '8px',
+            maxHeight: '220px',
+            overflowY: 'auto',
+            boxShadow: '0 12px 28px rgba(0, 0, 0, 0.6)'
+          }}>
             {loading && options.length === 0 ? (
-              <div className="p-4 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+              <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
                 Searching Supabase database...
               </div>
             ) : options.length === 0 ? (
-              <div className="p-4 text-center text-xs text-slate-500">
+              <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 No matching taxonomy records found in database.
               </div>
             ) : (
               options.map((option) => {
                 const isSelected = selectedItems.some(
-                  (s) => s.id === option.id || s.name.toLowerCase() === option.name.toLowerCase()
+                  (s) => (s.id && s.id === option.id) || s.name.toLowerCase() === option.name.toLowerCase()
                 );
                 return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    disabled={isSelected}
-                    onClick={() => handleSelectItem(option)}
-                    className={`w-full text-left px-4 py-2.5 flex items-center justify-between text-xs transition-colors ${
-                      isSelected
-                        ? 'bg-slate-50 text-slate-400 cursor-default'
-                        : 'hover:bg-indigo-50/70 text-slate-700 font-medium'
-                    }`}
+                  <div
+                    key={option.id || option.name}
+                    onClick={() => !isSelected && handleSelectItem(option)}
+                    style={{
+                      padding: '9px 12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '0.82rem',
+                      cursor: isSelected ? 'default' : 'pointer',
+                      background: isSelected ? 'rgba(255,255,255,0.03)' : 'transparent',
+                      color: isSelected ? 'var(--text-muted)' : 'var(--text-primary)',
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      transition: 'background 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) e.currentTarget.style.background = 'transparent';
+                    }}
                   >
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-slate-800">{option.name}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 600 }}>{option.name}</span>
                       {(option.category || option.city || option.country) && (
-                        <span className="text-[11px] text-slate-400">
-                          {option.category || `${option.city || ''}, ${option.country || ''}`}
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          {option.category || `${option.city || ''}${option.country ? ', ' + option.country : ''}`}
                         </span>
                       )}
                     </div>
-                    {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
-                  </button>
+                    {isSelected && <Check size={14} style={{ color: 'var(--signal-green)' }} />}
+                  </div>
                 );
               })
             )}
@@ -206,7 +302,11 @@ export default function SearchableMultiSelect({
         )}
       </div>
 
-      {helpText && <p className="text-[11px] text-slate-500 flex items-center gap-1"><AlertCircle className="w-3 h-3 text-slate-400" /> {helpText}</p>}
+      {helpText && (
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+          <AlertCircle size={12} style={{ color: 'var(--text-secondary)' }} /> {helpText}
+        </p>
+      )}
     </div>
   );
 }
