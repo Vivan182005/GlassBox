@@ -304,8 +304,26 @@ def get_fairness_audit():
 def get_mitigation_audit():
     return calculate_mitigated_fairness_metrics()
 
+supabase_client = None
+try:
+    from supabase import create_client
+    s_url = os.environ.get("SUPABASE_URL", "").strip()
+    s_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.environ.get("SUPABASE_ANON_KEY", "").strip()
+    if s_url and s_key:
+        supabase_client = create_client(s_url, s_key)
+except Exception as e:
+    print("Supabase client init in main.py:", e)
+
 @app.get("/api/resumes/sample")
 def get_sample_resumes():
+    if supabase_client is not None:
+        try:
+            res = supabase_client.table("sample_candidates").select("*").limit(25).execute()
+            if res.data and len(res.data) > 0:
+                return res.data
+        except Exception:
+            pass
+
     possible_paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cached_resumes.json"),
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cached_resumes.json"),

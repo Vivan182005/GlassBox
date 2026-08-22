@@ -130,6 +130,16 @@ GENERIC_ATS_PROFILE = {
 
 TTL_SECONDS = 90 * 86400  # 90 days TTL for company ATS cache entries
 
+supabase_client = None
+try:
+    from supabase import create_client
+    s_url = os.environ.get("SUPABASE_URL", "").strip()
+    s_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.environ.get("SUPABASE_ANON_KEY", "").strip()
+    if s_url and s_key:
+        supabase_client = create_client(s_url, s_key)
+except Exception as e:
+    print("Supabase client init in ats_signatures:", e)
+
 def get_cache_file_path() -> str:
     possible_paths = [
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ats_company_cache.json"),
@@ -143,6 +153,17 @@ def get_cache_file_path() -> str:
     return possible_paths[0]
 
 def load_company_cache() -> Dict[str, Any]:
+    if supabase_client is not None:
+        try:
+            res = supabase_client.table("ats_company_cache").select("*").execute()
+            if res.data and len(res.data) > 0:
+                cache_map = {}
+                for row in res.data:
+                    cache_map[row["cache_key"]] = row["cache_data"]
+                return cache_map
+        except Exception:
+            pass
+
     cache_path = get_cache_file_path()
     if os.path.exists(cache_path):
         try:
@@ -153,6 +174,19 @@ def load_company_cache() -> Dict[str, Any]:
     return {}
 
 def save_company_cache(cache_data: Dict[str, Any]):
+    if supabase_client is not None:
+        try:
+            rows = []
+            for k, v in cache_data.items():
+                rows.append({
+                    "cache_key": k,
+                    "cache_data": v,
+                    "updated_at": time.time()
+                })
+            supabase_client.table("ats_company_cache").upsert(rows, on_conflict="cache_key").execute()
+        except Exception as e:
+            print("Supabase ATS cache upsert notice:", e)
+
     try:
         cache_path = get_cache_file_path()
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
