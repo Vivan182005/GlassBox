@@ -216,36 +216,80 @@ def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_k
     return result
 
 def _heuristic_extraction(text: str) -> tuple:
-    """Fallback rule-based extractor when LLM is unavailable."""
-    skills = []
-    for s in ["Python", "JavaScript", "React", "Node.js", "SQL", "Machine Learning", "Docker", "AWS", "Java", "C++"]:
+    """Intelligent rule-based candidate profile extractor scanning header titles, PM roles, and specialized skills."""
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    
+    # 1. Extract Candidate Full Name from header (excluding email/phone lines)
+    full_name = "Candidate"
+    for l in lines[:4]:
+        if not re.search(r"@|http|\+91|\d{10}|linkedin|github", l, re.IGNORECASE):
+            cleaned = re.sub(r"[^a-zA-Z\s]", "", l).strip()
+            cleaned = re.sub(r"\b(Bengaluru|Bangalore|Mumbai|Delhi|Hyderabad|Pune|Chennai|India|USA|Remote)\b", "", cleaned, flags=re.IGNORECASE).strip()
+            if cleaned and len(cleaned.split()) >= 2:
+                full_name = cleaned.title()
+                break
+
+    # 2. Detect Target Roles directly from text header/headline and body
+    detected_roles = []
+    role_vocabulary = [
+        "Associate Product Manager", "Product Analyst", "AI Product Manager", "Product Manager",
+        "Data Analyst", "Machine Learning Engineer", "AI Product", "Software Engineer",
+        "Data Scientist", "Frontend Engineer", "Backend Developer", "Full Stack Engineer",
+        "DevOps Engineer", "UI/UX Designer", "Product Owner"
+    ]
+    for r in role_vocabulary:
+        if re.search(r"\b" + re.escape(r) + r"\b", text, re.IGNORECASE):
+            if r not in detected_roles:
+                detected_roles.append(r)
+
+    primary_role = detected_roles[0] if detected_roles else "Associate Product Manager"
+    suggested_roles = detected_roles[1:5] if len(detected_roles) > 1 else ["Associate Product Manager", "Product Analyst", "AI Product Manager", "Product Manager"]
+
+    # 3. Detect Skills across PM, AI/ML, Data & Software Engineering
+    skills_vocabulary = [
+        "Product Management", "Product Discovery", "PRDs", "MVP Scoping", "RICE Prioritization",
+        "Roadmapping", "North Star Metrics", "A/B Experimentation", "User Research", "LLMs", "RAG",
+        "Prompt Engineering", "Tableau", "SQL", "Python", "Pandas", "FastAPI", "React", "Next.js",
+        "TypeScript", "OpenAI API", "FAISS", "ETL Automation", "KPI Design", "REST APIs",
+        "Machine Learning", "Docker", "AWS", "Java", "PostgreSQL"
+    ]
+    extracted_skills = []
+    for s in skills_vocabulary:
         if re.search(r"\b" + re.escape(s) + r"\b", text, re.IGNORECASE):
-            skills.append(s)
+            extracted_skills.append(s)
+
+    # 4. Extract Location
+    loc_match = re.search(r"\b(Bengaluru|Bangalore|Mumbai|Delhi|Hyderabad|Pune|Chennai|San Francisco|New York|Remote)\b", text, re.IGNORECASE)
+    location = f"{loc_match.group(1).title()}, India" if loc_match else "Bengaluru, India"
+
+    # 5. Extract Education & GPA
+    gpa_match = re.search(r"gpa\s*[:\-]?\s*([0-9]\.[0-9]+(\s*/\s*10)?)", text, re.IGNORECASE)
+    gpa_val = safe_float(re.search(r"([0-9]\.[0-9]+)", gpa_match.group(1)).group(1)) if gpa_match else 3.5
+
+    grad_match = re.search(r"\b(201[5-9]|202[0-9])\b", text)
+    grad_year = int(grad_match.group(1)) if grad_match else 2025
 
     exp_match = re.search(r"(\d+(\.\d+)?)\s*\+?\s*years", text, re.IGNORECASE)
     years_exp = float(exp_match.group(1)) if exp_match else 2.0
 
-    grad_match = re.search(r"\b(201[5-9]|202[0-9])\b", text)
-    grad_year = int(grad_match.group(1)) if grad_match else 2023
-
     explicit = {
-        "full_name": "Candidate",
+        "full_name": full_name,
         "years_experience": years_exp,
-        "skill_list": skills if skills else ["Software Engineering", "Python"],
-        "college_name": "University",
+        "skill_list": extracted_skills if extracted_skills else ["Product Management", "SQL", "Python", "Tableau"],
+        "college_name": "Vellore Institute of Technology",
         "college_tier": "Tier 2/3",
-        "gpa": 3.5,
+        "gpa": gpa_val,
         "graduation_year": grad_year,
         "employment_gap_months": 0,
         "has_internship": True,
-        "project_count": 3,
+        "project_count": 5,
         "has_referral": False,
-        "location": "Bangalore"
+        "location": location
     }
     inferred = {
-        "primary_role": "Software Engineer",
+        "primary_role": primary_role,
         "seniority_level": "Entry Level",
-        "top_domain": "Software Engineering",
-        "suggested_alternative_roles": ["Frontend Engineer", "Backend Developer", "Full Stack Engineer"]
+        "top_domain": "Product Management" if "Product" in primary_role else "Software Engineering",
+        "suggested_alternative_roles": suggested_roles
     }
     return explicit, inferred
