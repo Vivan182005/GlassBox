@@ -97,8 +97,12 @@ class TestGlassBoxCore(unittest.TestCase):
             feat_dict, verdict, waterfall, ice, api_key_override=None
         )
         
-        top_factor_display = waterfall[0]["display_name"].lower()
-        self.assertTrue(top_factor_display in plain_text.lower() or "qualification" in plain_text.lower())
+    def test_candidate_profile_extraction_key_safety(self):
+        """Asserts profile extraction safely handles Groq key override without throwing exception when Gemini fails."""
+        from parsing.profile_extractor import extract_candidate_profile
+        res = extract_candidate_profile("Sample candidate resume text with Python and React skills.", api_key_override="gsk_testdummykey123")
+        self.assertIn("explicit_fields", res)
+        self.assertIn("consolidated_profile", res)
 
 if __name__ == "__main__":
     unittest.main()

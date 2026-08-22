@@ -58,8 +58,15 @@ def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_k
             "consolidated_profile": {}
         }
 
-    gemini_key = (api_key_override or os.environ.get("GEMINI_API_KEY", "")).strip()
-    groq_key = (os.environ.get("GROQ_API_KEY", "")).strip()
+    override = (api_key_override or "").strip()
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+
+    if override:
+        if override.startswith("AIza"):
+            gemini_key = override
+        elif override.startswith("gsk_") or not groq_key:
+            groq_key = override
 
     system_prompt = (
         "You are an expert HR-tech Applicant Tracking System auditor and candidate profiler. "
@@ -93,26 +100,8 @@ def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_k
 
     explicit, inferred = None, None
 
-    # Priority 1: Gemini API
-    if gemini_key:
-        try:
-            genai.configure(api_key=gemini_key)  # type: ignore
-            model = genai.GenerativeModel("gemini-1.5-flash")  # type: ignore
-            response = model.generate_content(
-                f"{system_prompt}\n\nRAW CANDIDATE RESUME TEXT:\n{clean_text[:4000]}"
-            )
-            raw_res = (response.text or "").strip()
-            # Extract json block if present
-            json_match = re.search(r"\{.*\}", raw_res, re.DOTALL)
-            if json_match:
-                extracted_json = json.loads(json_match.group(0))
-                explicit = extracted_json.get("explicit_fields", {})
-                inferred = extracted_json.get("inferred_fields", {})
-        except Exception as e:
-            print("Gemini candidate profile extraction failed:", e)
-
-    # Priority 2: Groq Fallback
-    if not explicit and groq_key:
+    # Priority 1: Groq API (User key preferred)
+    if groq_key:
         try:
             client = Groq(api_key=groq_key)
             response = client.chat.completions.create(
@@ -127,8 +116,26 @@ def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_k
             res_content = response.choices[0].message.content
             extracted_json = json.loads((res_content or "").strip())
             explicit = extracted_json.get("explicit_fields", {})
+            inferred = extracted_json.get("inferred_fields", {})
         except Exception as e:
             print("Groq candidate profile extraction fallback failed:", e)
+
+    # Priority 2: Gemini API
+    if not explicit and gemini_key:
+        try:
+            genai.configure(api_key=gemini_key)  # type: ignore
+            model = genai.GenerativeModel("gemini-1.5-flash")  # type: ignore
+            response = model.generate_content(
+                f"{system_prompt}\n\nRAW CANDIDATE RESUME TEXT:\n{clean_text[:4000]}"
+            )
+            raw_res = (response.text or "").strip()
+            json_match = re.search(r"\{.*\}", raw_res, re.DOTALL)
+            if json_match:
+                extracted_json = json.loads(json_match.group(0))
+                explicit = extracted_json.get("explicit_fields", {})
+                inferred = extracted_json.get("inferred_fields", {})
+        except Exception as e:
+            print("Gemini candidate profile extraction failed:", e)
 
     # Priority 3: Rule-based Heuristics
     if not explicit:
