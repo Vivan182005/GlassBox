@@ -1,483 +1,535 @@
 import os
-import json
 import re
+import json
+import hashlib
 import datetime
+from typing import Dict, Any, Optional, List, Tuple
 import requests
-from typing import Dict, Any, List, Optional
-import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize Supabase client if available
+# Reuse the same broad, domain-spanning skills vocabulary used by the resume
+# extractor so a candidate's extracted skills and a job's extracted skills are
+# matched against the same taxonomy.
+try:
+    from parsing.profile_extractor import _SKILLS_VOCABULARY
+except Exception:
+    _SKILLS_VOCABULARY = [
+        "Python", "Java", "C++", "JavaScript", "TypeScript", "SQL", "React", "Node.js",
+        "Machine Learning", "Deep Learning", "PyTorch", "TensorFlow", "AWS", "Docker",
+        "Kubernetes", "Product Management", "SQL", "Tableau", "REST APIs"
+    ]
+
+# ---------------------------------------------------------------------------
+# Supabase client -- this is now the ONLY persistence layer. No JSON files,
+# no in-memory fake dataset. If Supabase isn't configured, the service says
+# so explicitly rather than silently falling back to fabricated postings.
+# ---------------------------------------------------------------------------
 supabase_client = None
+SUPABASE_CONFIGURED = False
 try:
     from supabase import create_client
     s_url = os.environ.get("SUPABASE_URL", "").strip()
     s_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.environ.get("SUPABASE_ANON_KEY", "").strip()
     if s_url and s_key:
         supabase_client = create_client(s_url, s_key)
+        SUPABASE_CONFIGURED = True
 except Exception as e:
     print("Supabase client init in job_discovery_service:", e)
 
+# ---------------------------------------------------------------------------
+# JSearch (RapidAPI) -- a real job-search aggregator (LinkedIn + Indeed +
+# Glassdoor + Google for Jobs). LinkedIn itself does not expose a public job
+# search API to individual developers -- that requires a Talent Solutions
+# partnership, which is why the previous "Official LinkedIn API" branch never
+# actually worked and silently fell through to fake data every time.
+#
+# Get a free RAPIDAPI_KEY at https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
+# and set RAPIDAPI_KEY in your .env. Free tier is enough for portfolio-scale use.
+# ---------------------------------------------------------------------------
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "").strip()
+JSEARCH_HOST = "jsearch.p.rapidapi.com"
+JSEARCH_URL = f"https://{JSEARCH_HOST}/search"
+
+DATE_POSTED_OPTIONS = {"all", "today", "3days", "week", "month"}
+
+CACHE_FRESHNESS_HOURS = 6          # re-use cached Supabase results if fetched within this window
+MAX_PAGES_PER_QUERY = 15           # JSearch returns ~10 results/page -> up to ~150 raw results per query
+TARGET_RESULT_CAP = 200            # hard ceiling on how many filtered jobs we ever return
+
 
 # ===========================================================================
-# MASTER SUPABASE & DYNAMIC TECH JOB BANK (100+ Localized Active Postings)
-# Contains authentic, role-aligned job postings with explicit INR / USD salaries,
-# real skills, real ATS providers, and strict location tags.
+# Helpers
 # ===========================================================================
 
-RAW_JOB_BANK = [
-    # --- PRODUCT MANAGEMENT & ANALYTICS (Bengaluru / India) ---
-    {
-        "id": "job_pm_blr_01",
-        "title": "Associate Product Manager",
-        "company": "Swiggy",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "1-3 years",
-        "salary": "₹18 – ₹28 LPA",
-        "skills": ["Product Management", "Product Discovery", "PRDs", "RICE Prioritization", "A/B Experimentation", "SQL"],
-        "description": "Role: Associate Product Manager\nCompany: Swiggy\nLocation: Bengaluru, Karnataka, India (Hybrid)\n\nResponsibilities:\n- Own feature discovery, PRD writing, and MVP scoping for core consumer ordering funnels.\n- Conduct user research, run A/B experimentation, and analyze North Star metrics.\n- Collaborate closely with engineering, data analytics, and design teams.\n\nRequirements:\n- 1+ years of experience in product management, product analysis, or consulting.\n- Strong proficiency in SQL, PRD drafting, and quantitative funnel analysis.",
-        "postedAt": "2026-08-22",
-        "applyUrl": "https://careers.swiggy.com/jobs/apm-bengaluru"
-    },
-    {
-        "id": "job_pm_blr_02",
-        "title": "Product Analyst",
-        "company": "Razorpay",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "On-Site",
-        "employmentType": "Full-time",
-        "experience": "1-4 years",
-        "salary": "₹16 – ₹26 LPA",
-        "skills": ["Product Analyst", "SQL", "Tableau", "Python", "A/B Experimentation", "Funnel Analysis"],
-        "description": "Role: Product Analyst\nCompany: Razorpay\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Partner with Product Managers to define metrics, design dashboards, and track product activation.\n- Perform deep-dive funnel analysis and cohort retention studies to uncover growth opportunities.\n- Build self-serve Tableau & SQL dashboards for merchant onboarding metrics.\n\nRequirements:\n- 2+ years in Product Analytics, Data Analytics, or Business Intelligence.\n- Advanced SQL, Python (Pandas/NumPy), Tableau, and product experiment evaluation.",
-        "postedAt": "2026-08-21",
-        "applyUrl": "https://razorpay.com/careers/jobs/product-analyst"
-    },
-    {
-        "id": "job_pm_blr_03",
-        "title": "AI Product Manager",
-        "company": "Postman",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "2-5 years",
-        "salary": "₹25 – ₹42 LPA",
-        "skills": ["AI Product Manager", "LLMs", "RAG", "Prompt Engineering", "PRDs", "REST APIs"],
-        "description": "Role: AI Product Manager\nCompany: Postman\nLocation: Bengaluru, Karnataka, India (Hybrid)\n\nResponsibilities:\n- Lead product roadmap for Postman AI Assistant and LLM-powered API test generation.\n- Define guardrails, evaluation benchmarks, and user workflows for generative AI features.\n- Translate developer feedback into actionable engineering PRDs and MVP deliverables.\n\nRequirements:\n- 2+ years managing AI/ML or API developer products.\n- Hands-on familiarity with LLMs, RAG architectures, prompt engineering, and REST APIs.",
-        "postedAt": "2026-08-22",
-        "applyUrl": "https://www.postman.com/careers/jobs/ai-product-manager"
-    },
-    {
-        "id": "job_pm_blr_04",
-        "title": "Product Manager - Growth",
-        "company": "Flipkart",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "3-6 years",
-        "salary": "₹28 – ₹45 LPA",
-        "skills": ["Product Manager", "Product Discovery", "Growth Hacking", "A/B Experimentation", "Roadmapping"],
-        "description": "Role: Product Manager - Growth\nCompany: Flipkart\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Drive user acquisition, activation, and conversion across Flipkart's mobile platform.\n- Formulate growth hypotheses, execute high-velocity A/B tests, and optimize checkout flows.\n- Define quarterly OKRs and lead cross-functional pods of engineers and designers.\n\nRequirements:\n- 3+ years in B2C product management or growth engineering at scale.\n- Proven track record of improving conversion metrics and customer retention.",
-        "postedAt": "2026-08-20",
-        "applyUrl": "https://www.flipkartcareers.com/jobs/pm-growth"
-    },
-    {
-        "id": "job_pm_blr_05",
-        "title": "Associate Product Manager - AI & Data",
-        "company": "Bosch India",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "1-3 years",
-        "salary": "₹15 – ₹24 LPA",
-        "skills": ["Associate Product Manager", "Tableau", "SQL", "Python", "PRDs", "User Research"],
-        "description": "Role: Associate Product Manager - AI & Data\nCompany: Bosch India\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Translate industrial automation data into self-serve analytical dashboards and tooling.\n- Write technical PRDs for downtime tracking, MTTR/MTBF analytics, and quality control systems.\n- Gather feedback from manufacturing plant managers to iterate on product usability.\n\nRequirements:\n- Degree in Engineering or CS; NextLeap PM Fellowship or equivalent is a plus.\n- Proficiency in SQL, Tableau dashboards, Python, and product scoping.",
-        "postedAt": "2026-08-22",
-        "applyUrl": "https://www.bosch.in/careers/jobs/apm-ai-data"
-    },
-
-    # --- DATA ANALYTICS & DATA SCIENCE (Bengaluru / India) ---
-    {
-        "id": "job_data_blr_01",
-        "title": "Data Analyst",
-        "company": "Zomato",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "On-Site",
-        "employmentType": "Full-time",
-        "experience": "1-3 years",
-        "salary": "₹14 – ₹22 LPA",
-        "skills": ["Data Analyst", "SQL", "Python", "Pandas", "Tableau", "ETL Automation"],
-        "description": "Role: Data Analyst\nCompany: Zomato\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Analyze restaurant supply and rider logistics datasets to optimize delivery times.\n- Automate daily KPI dashboards using SQL, HiveQL, and Tableau.\n- Perform root-cause investigation into order cancellations and customer complaints.\n\nRequirements:\n- 1-3 years in data analysis, SQL query optimization, and Python data manipulation.",
-        "postedAt": "2026-08-22",
-        "applyUrl": "https://www.zomato.com/careers/jobs/data-analyst"
-    },
-    {
-        "id": "job_data_blr_02",
-        "title": "Senior Data Analyst",
-        "company": "PhonePe",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "3-5 years",
-        "salary": "₹22 – ₹35 LPA",
-        "skills": ["Senior Data Analyst", "SQL", "Python", "Tableau", "PostgreSQL", "A/B Experimentation"],
-        "description": "Role: Senior Data Analyst\nCompany: PhonePe\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Lead UPI payment funnel analytics and merchant risk detection models.\n- Build automated data pipelines and interactive executive dashboards.\n- Design and evaluate multivariate A/B tests for payment checkout improvements.\n\nRequirements:\n- 3+ years of data analytics experience in FinTech, e-commerce, or payments.",
-        "postedAt": "2026-08-21",
-        "applyUrl": "https://www.phonepe.com/careers/jobs/senior-data-analyst"
-    },
-
-    # --- AI & MACHINE LEARNING (Bengaluru / India) ---
-    {
-        "id": "job_ai_blr_01",
-        "title": "Machine Learning Engineer",
-        "company": "Google India",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "2-5 years",
-        "salary": "₹30 – ₹55 LPA",
-        "skills": ["Machine Learning Engineer", "Python", "PyTorch", "LLMs", "RAG", "FastAPI"],
-        "description": "Role: Machine Learning Engineer\nCompany: Google India\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Develop and deploy large-scale LLM inference pipelines, RAG retrieval engines, and vector search.\n- Optimize model latency, embeddings quality, and fine-tuning workflows on TPU/GPU clusters.\n- Write production-grade microservices in Python, C++, and FastAPI.\n\nRequirements:\n- 2+ years building production ML systems, PyTorch, FAISS/Qdrant, and distributed inference.",
-        "postedAt": "2026-08-22",
-        "applyUrl": "https://careers.google.com/jobs/ml-engineer-bengaluru"
-    },
-    {
-        "id": "job_ai_blr_02",
-        "title": "AI Research Engineer",
-        "company": "Microsoft India",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "2-4 years",
-        "salary": "₹28 – ₹48 LPA",
-        "skills": ["AI Research Engineer", "LLMs", "RAG", "Prompt Engineering", "Python", "FAISS"],
-        "description": "Role: AI Research Engineer\nCompany: Microsoft India\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Research and benchmark state-of-the-art LLM guardrails, RAG accuracy, and evaluation pipelines.\n- Implement grounding techniques across enterprise factual knowledge stores.\n- Write technical papers and open-source contributions for AI developer tooling.\n\nRequirements:\n- MS/BS in CS or AI; experience with OpenAI API, Hugging Face, FAISS, and LangChain.",
-        "postedAt": "2026-08-21",
-        "applyUrl": "https://careers.microsoft.com/jobs/ai-research-engineer"
-    },
-
-    # --- SOFTWARE ENGINEERING & FULL STACK (Bengaluru / India) ---
-    {
-        "id": "job_sde_blr_01",
-        "title": "Senior Software Engineer",
-        "company": "Stripe India",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "3-6 years",
-        "salary": "₹35 – ₹60 LPA",
-        "skills": ["Software Engineer", "Python", "React.js", "Node.js", "SQL", "Docker"],
-        "description": "Role: Senior Software Engineer\nCompany: Stripe India\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Build robust global payment APIs and distributed microservices with 99.999% availability.\n- Optimize PostgreSQL query performance and scale containerized deployments with Docker & Kubernetes.\n- Collaborate with international engineering teams across US, Europe, and Asia.\n\nRequirements:\n- 4+ years of full stack or backend software development experience in Python, Ruby, or Go.",
-        "postedAt": "2026-08-22",
-        "applyUrl": "https://stripe.com/jobs/senior-sde-bengaluru"
-    },
-    {
-        "id": "job_sde_blr_02",
-        "title": "Frontend Engineer",
-        "company": "Freshworks",
-        "location": "Bengaluru, Karnataka, India",
-        "workMode": "Hybrid",
-        "employmentType": "Full-time",
-        "experience": "2-4 years",
-        "salary": "₹20 – ₹32 LPA",
-        "skills": ["Frontend Engineer", "React.js", "Next.js", "TypeScript", "JavaScript"],
-        "description": "Role: Frontend Engineer\nCompany: Freshworks\nLocation: Bengaluru, Karnataka, India\n\nResponsibilities:\n- Build responsive, accessible SaaS web interfaces in React.js, Next.js, and TypeScript.\n- Collaborate with product designers to implement pixel-perfect design systems.\n- Optimize bundle size, web vitals, and client-side rendering speed.\n\nRequirements:\n- 2+ years of professional React.js / Next.js engineering experience.",
-        "postedAt": "2026-08-21",
-        "applyUrl": "https://www.freshworks.com/careers/jobs/frontend-engineer"
-    },
-
-    # --- OTHER TECH HUBS IN INDIA (Mumbai, Hyderabad, Gurgaon, Remote India) ---
-    {
-        "id": "job_pm_mum_01",
-        "title": "Product Manager",
-        "company": "Jio Financial Services",
-        "location": "Mumbai, Maharashtra, India",
-        "workMode": "On-Site",
-        "employmentType": "Full-time",
-        "experience": "2-5 years",
-        "salary": "₹22 – ₹38 LPA",
-        "skills": ["Product Manager", "Product Discovery", "PRDs", "Roadmapping", "SQL"],
-        "description": "Role: Product Manager\nCompany: Jio Financial Services\nLocation: Mumbai, Maharashtra, India\n\nResponsibilities:\n- Own digital lending and wealth management user flows for millions of retail users.\n- Write detailed PRDs, scope MVP features, and lead weekly sprint planning.\n\nRequirements:\n- 2+ years of FinTech product management experience.",
-        "postedAt": "2026-08-20",
-        "applyUrl": "https://www.jio.com/careers/jobs/pm-mumbai"
-    },
-    {
-        "id": "job_pm_remote_01",
-        "title": "Associate Product Manager",
-        "company": "Hasura",
-        "location": "Remote (India)",
-        "workMode": "Remote",
-        "employmentType": "Full-time",
-        "experience": "1-3 years",
-        "salary": "₹20 – ₹30 LPA",
-        "skills": ["Associate Product Manager", "PRDs", "GraphQL", "REST APIs", "User Research"],
-        "description": "Role: Associate Product Manager\nCompany: Hasura\nLocation: Remote (India)\n\nResponsibilities:\n- Drive developer experience improvements for Hasura GraphQL engine and cloud console.\n- Gather user feedback from developer forums, write PRDs, and prioritize roadmap items.\n\nRequirements:\n- 1-3 years experience in developer tools, API platforms, or technical product management.",
-        "postedAt": "2026-08-22",
-        "applyUrl": "https://hasura.io/careers/jobs/apm-remote-india"
-    }
-]
+def _map_max_age_to_date_posted(max_age: str) -> str:
+    max_age = (max_age or "").lower()
+    if "1" in max_age and "day" in max_age:
+        return "today"
+    if "3" in max_age:
+        return "3days"
+    if "7" in max_age or "week" in max_age:
+        return "week"
+    if "30" in max_age or "month" in max_age:
+        return "month"
+    return "month"
 
 
-class LinkedInProvider:
-    """
-    Official LinkedIn Job Search Provider Adapter with Supabase DB Integration.
-    Queries official LinkedIn REST API when keys are present, or fetches authentic
-    localized job listings directly from Supabase DB tables.
-    """
+def _posted_cutoff(date_posted: str) -> Optional[datetime.datetime]:
+    days_map = {"today": 1, "3days": 3, "week": 7, "month": 30}
+    days = days_map.get(date_posted)
+    if not days:
+        return None
+    return datetime.datetime.utcnow() - datetime.timedelta(days=days)
+
+
+def _extract_skills_from_text(text: str) -> List[str]:
+    if not text:
+        return []
+    found = []
+    for s in _SKILLS_VOCABULARY:
+        if re.search(r"(?<![A-Za-z0-9])" + re.escape(s) + r"(?![A-Za-z0-9])", text, re.IGNORECASE):
+            found.append(s)
+    return found
+
+
+def _search_signature(target_roles: List[str], locations: List[str], date_posted: str) -> str:
+    raw = json.dumps({
+        "roles": sorted([r.lower() for r in target_roles]),
+        "locations": sorted([l.lower() for l in locations]),
+        "date_posted": date_posted
+    }, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _matches_location(job: Dict[str, Any], requested_locations: List[str]) -> bool:
+    """Strict, no-fallback location check against the NORMALIZED job schema
+    (city/state/country/is_remote -- see normalize_jsearch_job / _row_to_job_dict).
+    If nothing matches, the job is excluded -- never silently included just to
+    pad out the result count."""
+    if not requested_locations:
+        return True
+    job_city = (job.get("city") or "").lower()
+    job_state = (job.get("state") or "").lower()
+    job_country = (job.get("country") or "").lower()
+    is_remote = bool(job.get("is_remote"))
+    haystack = f"{job_city} {job_state} {job_country}"
+
+    for loc in requested_locations:
+        loc_lower = loc.lower()
+        if "remote" in loc_lower and is_remote:
+            return True
+        # Tokenize the requested location, dropping generic country/state
+        # words so "Bengaluru, Karnataka, India" reduces to a real city token.
+        tokens = [t for t in re.split(r"[,\s]+", loc_lower) if t and t not in {"karnataka", "india", "remote"}]
+        for tok in tokens:
+            if tok in ("bangalore", "bengaluru") and ("bengaluru" in haystack or "bangalore" in haystack):
+                return True
+            if tok and tok in haystack:
+                return True
+    return False
+
+
+def _role_relevance(job_title: str, target_roles: List[str], job_skills: List[str], candidate_skills: List[str]) -> float:
+    """Returns 0.0 for genuinely irrelevant postings -- these get excluded, not
+    padded in. This is the direct fix for 'Product Analyst' searches returning
+    unrelated roles: there is no catch-all fallback below."""
+    title_lower = (job_title or "").lower()
+
+    if any(r.lower() in title_lower for r in target_roles):
+        return 1.0
+
+    token_hits = 0
+    for r in target_roles:
+        for tok in r.lower().split():
+            if len(tok) > 2 and re.search(r"\b" + re.escape(tok) + r"\b", title_lower):
+                token_hits += 1
+
+    skill_overlap = len(set(s.lower() for s in job_skills) & set(s.lower() for s in candidate_skills))
+
+    if token_hits >= 1 and skill_overlap >= 1:
+        return 0.75
+    if skill_overlap >= 3:
+        return 0.55
+    return 0.0
+
+
+# ===========================================================================
+# JSearch provider -- fetches real, current postings. No synthetic data.
+# ===========================================================================
+
+class JSearchProvider:
     def __init__(self):
-        self.client_id = os.environ.get("LINKEDIN_CLIENT_ID", "").strip()
-        self.client_secret = os.environ.get("LINKEDIN_CLIENT_SECRET", "").strip()
-        self.access_token = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
-        self._ensure_supabase_seed()
+        self.api_key = RAPIDAPI_KEY
 
-    def _ensure_supabase_seed(self):
-        """Seed default 100+ jobs into Supabase jobs table if table exists and is empty."""
-        if supabase_client is not None:
-            try:
-                check = supabase_client.table("jobs").select("id").limit(1).execute()
-                if not check.data or len(check.data) == 0:
-                    print("Seeding initial authentic job repository to Supabase...")
-                    for j in RAW_JOB_BANK:
-                        supabase_client.table("jobs").insert({
-                            "title": j["title"],
-                            "company_name": j["company"],
-                            "location": j["location"],
-                            "work_mode": j["workMode"],
-                            "employment_type": j["employmentType"],
-                            "experience": j["experience"],
-                            "salary": j["salary"],
-                            "skills": j["skills"],
-                            "description": j["description"],
-                            "apply_url": j["applyUrl"],
-                            "posted_at": j["postedAt"]
-                        }).execute()
-            except Exception as e:
-                print("Supabase job seed notice:", e)
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
 
-    def fetch_jobs(self, query_params: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Executes job search filtering strictly by selected location, target roles, skills, and posting age.
-        Reads from Supabase DB when available, or applies strict localized matching on job repository.
-        """
-        target_roles = [r.strip().lower() for r in (query_params.get("target_roles") or ["Software Engineer"])]
-        preferred_locations = [l.strip().lower() for l in (query_params.get("preferred_locations") or ["Bangalore"])]
-        skills = [s.strip().lower() for s in (query_params.get("skills") or [])]
-        max_age = query_params.get("maximum_posting_age") or "30 days"
+    def fetch_raw_jobs(self, role_query: str, location_query: str, date_posted: str) -> List[Dict[str, Any]]:
+        if not self.is_configured():
+            raise RuntimeError(
+                "RAPIDAPI_KEY is not set. Job discovery requires a real data source -- "
+                "get a free key at https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch "
+                "and set RAPIDAPI_KEY in your environment. Refusing to return placeholder jobs."
+            )
 
-        token = (query_params.get("linkedin_access_token") or self.access_token or os.environ.get("LINKEDIN_ACCESS_TOKEN", "")).strip()
+        headers = {"X-RapidAPI-Key": self.api_key, "X-RapidAPI-Host": JSEARCH_HOST}
+        query = f"{role_query} in {location_query}" if location_query else role_query
 
-        # 1. Try official LinkedIn REST API if token exists
-        if token:
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "X-Restli-Protocol-Version": "2.0.0",
-                "Content-Type": "application/json"
-            }
-            endpoint = "https://api.linkedin.com/v2/jobSearch"
+        collected: List[Dict[str, Any]] = []
+        seen_ids = set()
+
+        for page in range(1, MAX_PAGES_PER_QUERY + 1):
             params = {
-                "q": "keywords",
-                "keywords": target_roles[0] if target_roles else "Software Engineer",
-                "location": preferred_locations[0] if preferred_locations else "",
-                "count": 25
+                "query": query,
+                "page": str(page),
+                "num_pages": "1",
+                "date_posted": date_posted if date_posted in DATE_POSTED_OPTIONS else "month"
             }
             try:
-                resp = requests.get(endpoint, headers=headers, params=params, timeout=8)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    elements = data.get("elements", [])
-                    if elements:
-                        return {"status": "success", "provider": "Official LinkedIn API", "raw_jobs": elements}
+                resp = requests.get(JSEARCH_URL, headers=headers, params=params, timeout=15)
+                resp.raise_for_status()
+                payload = resp.json()
             except Exception as e:
-                print("Official LinkedIn API request failed:", e)
+                print(f"JSearch request failed on page {page}:", e)
+                break
 
-        # 2. Query Supabase 'jobs' Table directly if active
-        supabase_jobs = []
-        if supabase_client is not None:
-            try:
-                res = supabase_client.table("jobs").select("*").execute()
-                if res.data and len(res.data) > 0:
-                    for s_job in res.data:
-                        supabase_jobs.append({
-                            "id": str(s_job.get("id")),
-                            "title": s_job.get("title", ""),
-                            "company": s_job.get("company_name", ""),
-                            "companyDetails": {"companyName": s_job.get("company_name", "")},
-                            "formattedLocation": s_job.get("location", ""),
-                            "workplaceTypes": [s_job.get("work_mode", "Hybrid")],
-                            "employmentStatus": s_job.get("employment_type", "Full-time"),
-                            "experienceLevel": s_job.get("experience", "1-3 years"),
-                            "salaryRange": s_job.get("salary", "Competitive"),
-                            "skills": s_job.get("skills", []),
-                            "description": s_job.get("description", ""),
-                            "applyUrl": s_job.get("apply_url", "https://linkedin.com/jobs"),
-                            "listedAt": str(s_job.get("posted_at", "2026-08-22"))[:10]
-                        })
-            except Exception as err:
-                print("Supabase jobs fetch notice:", err)
+            page_jobs = payload.get("data") or []
+            if not page_jobs:
+                break  # no more results -- stop paginating rather than looping needlessly
 
-        source_pool = supabase_jobs if supabase_jobs else RAW_JOB_BANK
+            new_this_page = 0
+            for job in page_jobs:
+                jid = job.get("job_id")
+                if jid and jid not in seen_ids:
+                    seen_ids.add(jid)
+                    collected.append(job)
+                    new_this_page += 1
 
-        # 3. Apply STRICT Location & Role Filtering
-        filtered_jobs = []
-        for job in source_pool:
-            job_loc = (job.get("formattedLocation") or job.get("location") or "").lower()
-            job_title = (job.get("title") or "").lower()
+            if new_this_page == 0:
+                break  # API started repeating itself -- exhausted real results
+            if len(collected) >= TARGET_RESULT_CAP:
+                break
 
-            # Location match check (e.g. 'bengaluru', 'bangalore', 'india', or 'remote')
-            loc_matched = False
-            for p_loc in preferred_locations:
-                loc_clean = p_loc.replace("karnataka", "").replace("india", "").strip()
-                if "bengaluru" in loc_clean or "bangalore" in loc_clean:
-                    if "bengaluru" in job_loc or "bangalore" in job_loc or "remote" in job_loc:
-                        loc_matched = True
-                        break
-                elif loc_clean in job_loc or "remote" in job_loc:
-                    loc_matched = True
-                    break
-
-            if not loc_matched and preferred_locations:
-                # Strictly discard jobs outside the requested location (e.g. discard US/UK jobs when Bangalore is selected)
-                continue
-
-            # Role match check
-            role_matched = False
-            for t_role in target_roles:
-                # Match core role words e.g. "product analyst", "product manager", "associate product manager"
-                role_words = [w for w in t_role.split() if len(w) > 2]
-                if t_role in job_title or any(w in job_title for w in role_words):
-                    role_matched = True
-                    break
-
-            if not role_matched and target_roles:
-                # Also allow jobs that share 2+ matching skills if title isn't an exact match
-                job_skills_lower = [s.lower() for s in job.get("skills", [])]
-                common_skills = [s for s in skills if s in job_skills_lower]
-                if len(common_skills) < 2:
-                    continue
-
-            filtered_jobs.append(job)
-
-        # Fallback to general matched pool if strict filter was too narrow
-        if not filtered_jobs:
-            filtered_jobs = source_pool[:10]
-
-        return {
-            "status": "success",
-            "provider": "Supabase Verified Jobs",
-            "raw_jobs": filtered_jobs
-        }
+        return collected
 
 
-class JobNormalizer:
-    """
-    Normalization layer transforming raw job records into standard GlassBox schema.
-    """
-    @staticmethod
-    def normalize_linkedin_job(raw: Dict[str, Any]) -> Dict[str, Any]:
-        job_id = str(raw.get("id") or raw.get("entityUrn") or "")
-        title = raw.get("title", {}).get("text") if isinstance(raw.get("title"), dict) else raw.get("title", "Untitled Position")
-        company = raw.get("companyDetails", {}).get("companyName") if isinstance(raw.get("companyDetails"), dict) else raw.get("company", "Company")
-        location = raw.get("formattedLocation") or raw.get("location") or "Bengaluru, Karnataka, India"
-        description = raw.get("description", {}).get("text") if isinstance(raw.get("description"), dict) else (raw.get("description") or "")
-        
-        return {
-            "provider": "Supabase Jobs",
-            "providerJobId": job_id,
-            "companyName": company,
-            "title": title,
-            "description": description,
-            "location": location,
-            "workMode": raw.get("workplaceTypes", ["Hybrid"])[0] if isinstance(raw.get("workplaceTypes"), list) else "Hybrid",
-            "employmentType": raw.get("employmentStatus") or "Full-time",
-            "experience": raw.get("experienceLevel") or "1-3 years",
-            "salary": raw.get("salaryRange") or "₹18 – ₹30 LPA",
-            "skills": raw.get("skills") or [],
-            "postedAt": raw.get("listedAt") or "2026-08-22",
-            "applicationUrl": raw.get("applyUrl") or f"https://www.linkedin.com/jobs/view/{job_id}",
-            "sourceUrl": f"https://www.linkedin.com/jobs/view/{job_id}" if job_id else None,
-            "fetchedAt": datetime.date.today().strftime("%Y-%m-%d")
-        }
+# ===========================================================================
+# Supabase persistence -- replaces JSON entirely.
+#
+# Expected schema (create once in Supabase SQL editor):
+#
+#   create table if not exists jobs (
+#     external_id text primary key,
+#     source text not null default 'jsearch',
+#     title text,
+#     company_name text,
+#     location text,
+#     city text,
+#     state text,
+#     country text,
+#     work_mode text,
+#     is_remote boolean,
+#     employment_type text,
+#     salary_text text,
+#     skills jsonb,
+#     description text,
+#     apply_url text,
+#     posted_at timestamptz,
+#     fetched_at timestamptz default now()
+#   );
+#
+#   create table if not exists job_search_cache (
+#     search_signature text primary key,
+#     job_external_ids jsonb,
+#     fetched_at timestamptz default now()
+#   );
+# ===========================================================================
 
+class SupabaseJobStore:
+    def __init__(self, client):
+        self.client = client
+
+    def get_cached_job_ids(self, signature: str) -> Optional[List[str]]:
+        if not self.client:
+            return None
+        try:
+            res = self.client.table("job_search_cache").select("*").eq("search_signature", signature).limit(1).execute()
+            if not res.data:
+                return None
+            entry = res.data[0]
+            fetched_at = entry.get("fetched_at")
+            if not fetched_at:
+                return None
+            fetched_dt = datetime.datetime.fromisoformat(str(fetched_at).replace("Z", "+00:00"))
+            age_hours = (datetime.datetime.now(datetime.timezone.utc) - fetched_dt).total_seconds() / 3600
+            if age_hours > CACHE_FRESHNESS_HOURS:
+                return None
+            return entry.get("job_external_ids") or []
+        except Exception as e:
+            print("Supabase cache read notice:", e)
+            return None
+
+    def get_jobs_by_ids(self, ids: List[str]) -> List[Dict[str, Any]]:
+        if not self.client or not ids:
+            return []
+        try:
+            res = self.client.table("jobs").select("*").in_("external_id", ids).execute()
+            return res.data or []
+        except Exception as e:
+            print("Supabase jobs read notice:", e)
+            return []
+
+    def upsert_jobs(self, normalized_jobs: List[Dict[str, Any]]) -> None:
+        if not self.client or not normalized_jobs:
+            return
+        try:
+            rows = []
+            for j in normalized_jobs:
+                rows.append({
+                    "external_id": j["external_id"],
+                    "source": "jsearch",
+                    "title": j["title"],
+                    "company_name": j["company_name"],
+                    "location": j["location"],
+                    "city": j.get("city"),
+                    "state": j.get("state"),
+                    "country": j.get("country"),
+                    "work_mode": j.get("work_mode"),
+                    "is_remote": j.get("is_remote", False),
+                    "employment_type": j.get("employment_type"),
+                    "salary_text": j.get("salary_text"),
+                    "skills": j.get("skills", []),
+                    "description": j.get("description", ""),
+                    "apply_url": j.get("apply_url"),
+                    "posted_at": j.get("posted_at"),
+                    "fetched_at": datetime.datetime.utcnow().isoformat()
+                })
+            self.client.table("jobs").upsert(rows, on_conflict="external_id").execute()
+        except Exception as e:
+            print("Supabase jobs upsert notice:", e)
+
+    def write_cache_entry(self, signature: str, job_ids: List[str]) -> None:
+        if not self.client:
+            return
+        try:
+            self.client.table("job_search_cache").upsert({
+                "search_signature": signature,
+                "job_external_ids": job_ids,
+                "fetched_at": datetime.datetime.utcnow().isoformat()
+            }, on_conflict="search_signature").execute()
+        except Exception as e:
+            print("Supabase cache write notice:", e)
+
+
+# ===========================================================================
+# Normalization -- raw JSearch job -> GlassBox schema
+# ===========================================================================
+
+def normalize_jsearch_job(raw: Dict[str, Any]) -> Dict[str, Any]:
+    description = raw.get("job_description") or ""
+    # JSearch sometimes returns explicit required-skills; when absent, derive
+    # them the same way profile_extractor derives resume skills, from the
+    # actual description text -- never a hardcoded per-job skill list.
+    explicit_skills = raw.get("job_required_skills")
+    skills = explicit_skills if isinstance(explicit_skills, list) and explicit_skills else _extract_skills_from_text(description)
+
+    city = raw.get("job_city") or ""
+    state = raw.get("job_state") or ""
+    country = raw.get("job_country") or ""
+    location_str = ", ".join([p for p in [city, state, country] if p]) or ("Remote" if raw.get("job_is_remote") else "Not specified")
+
+    min_sal = raw.get("job_min_salary")
+    max_sal = raw.get("job_max_salary")
+    currency = raw.get("job_salary_currency") or ""
+    period = raw.get("job_salary_period") or ""
+    if min_sal and max_sal:
+        salary_text = f"{currency} {min_sal:,.0f} - {max_sal:,.0f} / {period}".strip()
+    else:
+        salary_text = "Not disclosed"
+
+    return {
+        "external_id": raw.get("job_id"),
+        "title": raw.get("job_title") or "Untitled Position",
+        "company_name": raw.get("employer_name") or "Unknown Company",
+        "location": location_str,
+        "city": city or None,
+        "state": state or None,
+        "country": country or None,
+        "work_mode": "Remote" if raw.get("job_is_remote") else "On-Site/Hybrid",
+        "is_remote": bool(raw.get("job_is_remote")),
+        "employment_type": raw.get("job_employment_type") or "Full-time",
+        "salary_text": salary_text,
+        "skills": skills,
+        "description": description,
+        "apply_url": raw.get("job_apply_link") or raw.get("job_google_link"),
+        "posted_at": raw.get("job_posted_at_datetime_utc"),
+    }
+
+
+def _row_to_job_dict(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Supabase row -> same shape normalize_jsearch_job() produces, so both
+    the live-fetch path and the cache-read path feed the ranking step identically."""
+    return {
+        "external_id": row.get("external_id"),
+        "title": row.get("title"),
+        "company_name": row.get("company_name"),
+        "location": row.get("location"),
+        "city": row.get("city"),
+        "state": row.get("state"),
+        "country": row.get("country"),
+        "work_mode": row.get("work_mode"),
+        "is_remote": row.get("is_remote", False),
+        "employment_type": row.get("employment_type"),
+        "salary_text": row.get("salary_text"),
+        "skills": row.get("skills") or [],
+        "description": row.get("description") or "",
+        "apply_url": row.get("apply_url"),
+        "posted_at": row.get("posted_at"),
+    }
+
+
+# ===========================================================================
+# Main service
+# ===========================================================================
 
 class JobDiscoveryService:
-    """
-    Job Discovery Engine powered by Supabase and Hybrid Similarity Ranking.
-    """
     def __init__(self):
-        self.linkedin_provider = LinkedInProvider()
+        self.provider = JSearchProvider()
+        self.store = SupabaseJobStore(supabase_client)
 
     def search_and_rank_jobs(
         self,
         preferences: Dict[str, Any],
         decision_factors: Optional[Dict[str, float]] = None,
-        api_key_override: Optional[str] = None
+        api_key_override: Optional[str] = None  # reserved: optional future Groq-generated "why matched" copy
     ) -> Dict[str, Any]:
 
-        # 1. Query Provider (Supabase DB + Strict Location/Role Filter)
-        provider_result = self.linkedin_provider.fetch_jobs(preferences)
+        target_roles = [r.strip() for r in (preferences.get("target_roles") or []) if r.strip()]
+        preferred_locations = [l.strip() for l in (preferences.get("preferred_locations") or []) if l.strip()]
+        candidate_skills = [s.strip() for s in (preferences.get("skills") or []) if s.strip()]
+        candidate_exp = float(preferences.get("years_experience") or 0.0)
+        max_age = preferences.get("maximum_posting_age") or "month"
 
-        raw_jobs = provider_result.get("raw_jobs", [])
-        if not raw_jobs:
+        if not target_roles:
+            return {"status": "error", "message": "At least one target role is required.", "jobs": [], "total_found": 0}
+        if not preferred_locations:
+            return {"status": "error", "message": "At least one preferred location is required.", "jobs": [], "total_found": 0}
+
+        date_posted = _map_max_age_to_date_posted(max_age) if not preferences.get("date_posted") else preferences["date_posted"]
+        signature = _search_signature(target_roles, preferred_locations, date_posted)
+
+        raw_jobs_normalized: List[Dict[str, Any]] = []
+        served_from_cache = False
+
+        cached_ids = self.store.get_cached_job_ids(signature)
+        if cached_ids:
+            rows = self.store.get_jobs_by_ids(cached_ids)
+            if rows:
+                raw_jobs_normalized = [_row_to_job_dict(r) for r in rows]
+                served_from_cache = True
+
+        if not raw_jobs_normalized:
+            if not self.provider.is_configured():
+                return {
+                    "status": "error",
+                    "provider": "JSearch",
+                    "message": (
+                        "Job discovery has no working data source configured. Set RAPIDAPI_KEY to a "
+                        "valid JSearch (RapidAPI) key -- this service will not return placeholder jobs."
+                    ),
+                    "jobs": [],
+                    "total_found": 0
+                }
+            all_raw: List[Dict[str, Any]] = []
+            for role in target_roles:
+                for loc in preferred_locations:
+                    try:
+                        page_jobs = self.provider.fetch_raw_jobs(role, loc, date_posted)
+                        all_raw.extend(page_jobs)
+                    except Exception as e:
+                        print("JSearch fetch failed for", role, loc, ":", e)
+
+            # Dedup across role/location query combinations
+            dedup: Dict[str, Dict[str, Any]] = {}
+            for j in all_raw:
+                jid = j.get("job_id")
+                if jid:
+                    dedup[jid] = j
+
+            raw_jobs_normalized = [normalize_jsearch_job(j) for j in dedup.values()]
+            self.store.upsert_jobs(raw_jobs_normalized)
+            self.store.write_cache_entry(signature, [j["external_id"] for j in raw_jobs_normalized if j.get("external_id")])
+
+        if not raw_jobs_normalized:
             return {
                 "status": "empty",
-                "provider": provider_result.get("provider", "Supabase Verified Jobs"),
-                "message": "No active jobs matched your selected role and location criteria.",
-                "total_found": 0,
-                "jobs": []
+                "provider": "JSearch",
+                "message": "No live postings were returned for this role/location/date combination.",
+                "jobs": [],
+                "total_found": 0
             }
 
-        # 2. Normalize Results
-        normalized_jobs = [JobNormalizer.normalize_linkedin_job(j) for j in raw_jobs]
+        # --- Strict local filtering (no blanket fallback that discards constraints) ---
+        cutoff = _posted_cutoff(date_posted)
+        filtered: List[Dict[str, Any]] = []
+        for job in raw_jobs_normalized:
+            if not _matches_location(job, preferred_locations):
+                continue
 
-        # 3. Deterministic Weighted Ranking
-        candidate_skills = [s.strip().lower() for s in (preferences.get("skills") or [])]
-        candidate_exp = float(preferences.get("years_experience") or 1.0)
-        target_roles = [r.lower() for r in (preferences.get("target_roles") or [])]
+            if cutoff and job.get("posted_at"):
+                try:
+                    posted_dt = datetime.datetime.fromisoformat(str(job["posted_at"]).replace("Z", "+00:00")).replace(tzinfo=None)
+                    if posted_dt < cutoff:
+                        continue
+                except Exception:
+                    pass  # unparsable date -- don't discard solely for that
 
-        df = decision_factors or {}
-        w_title = df.get("title_match", 0.35)
-        w_skills = df.get("skill_match", 0.40)
-        w_location = df.get("location_match", 0.15)
-        w_exp = df.get("experience", 0.10)
+            relevance = _role_relevance(job["title"], target_roles, job["skills"], candidate_skills)
+            if relevance <= 0.0:
+                continue
 
-        ranked_jobs = []
-        for job in normalized_jobs:
-            title_lower = job["title"].lower()
-            title_score = 1.0 if any(r in title_lower for r in target_roles) else 0.50
-            
-            job_skills = [s.lower() for s in job["skills"]]
-            matched_skills = [s for s in job["skills"] if s.lower() in candidate_skills]
-            missing_skills = [s for s in job["skills"] if s.lower() not in candidate_skills]
-            skill_score = (len(matched_skills) / len(job_skills)) if job_skills else 0.50
+            matched_skills = [s for s in job["skills"] if s.lower() in [c.lower() for c in candidate_skills]]
+            missing_skills = [s for s in job["skills"] if s.lower() not in [c.lower() for c in candidate_skills]]
+            skill_score = (len(matched_skills) / len(job["skills"])) if job["skills"] else 0.5
 
-            composite = (title_score * w_title) + (skill_score * w_skills) + (1.0 * w_location) + (1.0 * w_exp)
-            match_percentage = min(99, max(55, int(composite * 100)))
+            df = decision_factors or {}
+            w_title = df.get("title_match", 0.40)
+            w_skills = df.get("skill_match", 0.40)
+            w_exp = df.get("experience", 0.20)
+            exp_score = 1.0 if candidate_exp >= 0 else 0.5  # placeholder weight; real gating is relevance+location above
+
+            composite = (relevance * w_title) + (skill_score * w_skills) + (exp_score * w_exp)
+            match_percentage = min(99, max(40, int(composite * 100)))
 
             why_matched = (
-                f"Matched target role '{job['title']}' with key skills: {', '.join(matched_skills[:4])}"
-                if matched_skills else f"Aligned with your target preference '{job['title']}' in {job['location']}"
+                f"Title/skills overlap with '{job['title']}': {', '.join(matched_skills[:4])}"
+                if matched_skills else f"Role relevance match on '{job['title']}' in {job['location']}"
             )
 
-            job_entry = {
+            filtered.append({
                 **job,
                 "match_percentage": match_percentage,
                 "matched_skills": matched_skills,
                 "missing_skills": missing_skills,
                 "why_matched": why_matched
-            }
-            ranked_jobs.append(job_entry)
+            })
 
-        ranked_jobs.sort(key=lambda x: x["match_percentage"], reverse=True)
+        filtered.sort(key=lambda x: x["match_percentage"], reverse=True)
+        filtered = filtered[:TARGET_RESULT_CAP]
 
         return {
-            "status": "success",
-            "provider": provider_result.get("provider", "Supabase Verified Jobs"),
-            "total_found": len(ranked_jobs),
-            "jobs": ranked_jobs
+            "status": "success" if filtered else "empty",
+            "provider": "JSearch (cache)" if served_from_cache else "JSearch (live)",
+            "total_found": len(filtered),
+            "message": None if filtered else (
+                f"{len(raw_jobs_normalized)} postings were fetched for this query, but none matched "
+                f"the requested location/role/date filters strictly enough to show. Try broadening "
+                f"the location or role."
+            ),
+            "jobs": filtered
         }
+
 
 job_discovery_engine = JobDiscoveryService()
