@@ -17,7 +17,7 @@ from matching.groq_matcher import match_resume_to_jd
 from matching.job_discovery_service import job_discovery_engine
 from bias_model.model_trainer import trainer_instance
 from explainability.explainer import explainer_instance
-from explainability.fairness import calculate_fairness_metrics
+from explainability.fairness import calculate_fairness_metrics, calculate_mitigated_fairness_metrics
 from parsing.taxonomy_service import taxonomy_service
 
 app = FastAPI(
@@ -44,6 +44,10 @@ class CompanyDetectRequest(BaseModel):
     company_name: str
     groq_api_key: Optional[str] = None
 
+class AtsCorrectionRequest(BaseModel):
+    company_name: str
+    ats_id: str
+
 class JobSearchRequest(BaseModel):
     preferences: Dict[str, Any]
     decision_factors: Optional[Dict[str, float]] = None
@@ -68,6 +72,7 @@ class CandidatePredictRequest(BaseModel):
     demographic_proxy: str = "Group B"
     ice_feature: Optional[str] = "employment_gap_months"
     groq_api_key: Optional[str] = None
+    use_mitigated: Optional[bool] = False
 
 @app.get("/api/health")
 def health_check():
@@ -102,6 +107,10 @@ def detect_ats(req: UrlDetectRequest):
 @app.post("/api/ats/detect-company")
 def detect_ats_company(req: CompanyDetectRequest):
     return detect_ats_by_company_name(req.company_name, groq_api_key_override=req.groq_api_key)
+
+@app.post("/api/ats/correct")
+def correct_ats(req: AtsCorrectionRequest):
+    return record_user_confirmation(req.company_name, req.ats_id)
 
 @app.post("/api/resume/extract-profile")
 async def extract_profile_from_resume(
@@ -165,7 +174,8 @@ async def parse_and_simulate(
     file: Optional[UploadFile] = File(None),
     raw_text: Optional[str] = Form(None),
     careers_url: Optional[str] = Form(""),
-    company_name: Optional[str] = Form("")
+    company_name: Optional[str] = Form(""),
+    groq_api_key: Optional[str] = Form(None)
 ):
     extracted_text = ""
     blocks = []
@@ -189,7 +199,7 @@ async def parse_and_simulate(
     if careers_url and careers_url.strip():
         ats_detection = detect_ats_from_url(careers_url)
     elif company_name and company_name.strip():
-        ats_detection = detect_ats_by_company_name(company_name)
+        ats_detection = detect_ats_by_company_name(company_name, groq_api_key_override=groq_api_key)
     else:
         ats_detection = detect_ats_from_url("")
         
@@ -248,11 +258,16 @@ def score_jd_match(req: MatchRequest):
 @app.post("/api/model/predict-explain")
 def predict_and_explain(req: CandidatePredictRequest):
     feat_dict = req.model_dump()
-    prediction_res = trainer_instance.predict_candidate(feat_dict)
+    use_mitigated = bool(req.use_mitigated)
+    prediction_res = trainer_instance.predict_candidate(feat_dict, use_mitigated=use_mitigated)
     global_shap = explainer_instance.get_global_shap_importance()
     waterfall_res = explainer_instance.get_candidate_shap_waterfall(feat_dict)
     lime_res = explainer_instance.get_lime_explanation(feat_dict)
     ice_res = explainer_instance.get_ice_plot_data(req.ice_feature or "employment_gap_months", feat_dict)
+    
+    explanation_consistency = explainer_instance.compute_shap_lime_agreement(
+        waterfall_res["waterfall"], lime_res["lime_rules"]
+    )
     
     plain_explanation = explainer_instance.generate_plain_language_explanation(
         feat_dict, prediction_res, waterfall_res["waterfall"], ice_res, api_key_override=req.groq_api_key
@@ -262,6 +277,8 @@ def predict_and_explain(req: CandidatePredictRequest):
         "candidate_features": feat_dict,
         "model_verdict": prediction_res,
         "plain_language_summary": plain_explanation,
+        "explanation_consistency": explanation_consistency,
+        "model_calibration": trainer_instance.metrics,
         "global_shap": global_shap["global_importance"],
         "shap_waterfall": waterfall_res,
         "lime_explanation": lime_res,
@@ -271,6 +288,10 @@ def predict_and_explain(req: CandidatePredictRequest):
 @app.get("/api/model/fairness")
 def get_fairness_audit():
     return calculate_fairness_metrics()
+
+@app.get("/api/model/mitigate")
+def get_mitigation_audit():
+    return calculate_mitigated_fairness_metrics()
 
 @app.get("/api/resumes/sample")
 def get_sample_resumes():

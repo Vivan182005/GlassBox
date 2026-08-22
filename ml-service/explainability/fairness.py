@@ -57,3 +57,39 @@ def calculate_fairness_metrics() -> dict:
             "to validate that the auditor correctly isolates algorithmic unfairness."
         )
     }
+
+def calculate_mitigated_fairness_metrics() -> dict:
+    df = trainer_instance.df
+    if df is None or df.empty:
+        df = trainer_instance.prepare_features_and_labels()
+        
+    mitigated_info = trainer_instance.train_mitigated_model()
+    mit_model = mitigated_info["model"]
+    
+    X = df[trainer_instance.feature_names].copy()
+    X["demographic_group_a"] = 0
+    predictions = mit_model.predict(X)
+    df_temp = df.copy()
+    df_temp["mitigated_pred"] = predictions
+    
+    group_a_mask = df_temp["demographic_group_a"] == 1
+    group_b_mask = df_temp["demographic_group_a"] == 0
+    
+    acc_a = float(np.mean(df_temp.loc[group_a_mask, "mitigated_pred"])) if int(group_a_mask.sum()) > 0 else 0.0
+    acc_b = float(np.mean(df_temp.loc[group_b_mask, "mitigated_pred"])) if int(group_b_mask.sum()) > 0 else 0.0
+    
+    dpd = abs(acc_a - acc_b)
+    di_ratio = (acc_b / acc_a) if acc_a > 0 else 1.0
+    passes_80 = di_ratio >= 0.80
+    
+    return {
+        "unmitigated": calculate_fairness_metrics(),
+        "mitigated": {
+            "group_a_acceptance_rate": round(acc_a, 3),
+            "group_b_acceptance_rate": round(acc_b, 3),
+            "demographic_parity_difference": round(dpd, 3),
+            "disparate_impact_ratio": round(di_ratio, 3),
+            "passes_80_percent_rule": passes_80,
+            "interpretation": f"After reweighting sample distributions and removing proxy attributes, Disparate Impact improved to {round(di_ratio, 2)}."
+        }
+    }

@@ -167,11 +167,61 @@ class BiasModelTrainer:
         
         return self.model
 
-    def predict_candidate(self, candidate_features: dict) -> dict:
+    def train_mitigated_model(self):
+        """Trains a reweighted, de-biased model by zeroing demographic proxy feature and applying sample reweighting."""
+        if self.df is None or self.df.empty:
+            self.prepare_features_and_labels()
+            
+        assert self.df is not None
+        X = self.df[self.feature_names].copy()
+        X["demographic_group_a"] = 0  # Zero out demographic proxy
+        y = self.df["label"]
+        
+        group_a_mask = self.df["demographic_group_a"] == 1
+        mean_a = float(self.df[group_a_mask]["label"].mean()) if group_a_mask.any() else 0.5
+        mean_b = float(self.df[~group_a_mask]["label"].mean()) if (~group_a_mask).any() else 0.5
+        
+        w_a = 1.0 / max(mean_a, 0.1)
+        w_b = 1.0 / max(mean_b, 0.1)
+        sample_weights = np.where(group_a_mask, w_a, w_b)
+        
+        X_train, X_test, y_train, y_test, sw_train, sw_test = train_test_split(
+            X, y, sample_weights, test_size=0.2, random_state=42, stratify=y
+        )
+        
+        mitigated_model = RandomForestClassifier(n_estimators=100, max_depth=6, random_state=42)
+        mitigated_model.fit(X_train, y_train, sample_weight=sw_train)
+        
+        y_test_pred = mitigated_model.predict(X_test)
+        probs: Any = mitigated_model.predict_proba(X_test)
+        
+        test_acc = accuracy_score(y_test, y_test_pred)
+        prec = precision_score(y_test, y_test_pred, zero_division=0.0) # type: ignore
+        rec = recall_score(y_test, y_test_pred, zero_division=0.0) # type: ignore
+        f1 = f1_score(y_test, y_test_pred, zero_division=0.0) # type: ignore
+        auc = roc_auc_score(y_test, probs[:, 1])
+        
+        return {
+            "model": mitigated_model,
+            "metrics": {
+                "test_accuracy": round(float(test_acc), 4),
+                "precision": round(float(prec), 4),
+                "recall": round(float(rec), 4),
+                "f1_score": round(float(f1), 4),
+                "roc_auc": round(float(auc), 4)
+            }
+        }
+
+    def predict_candidate(self, candidate_features: dict, use_mitigated: bool = False) -> dict:
         if self.model is None:
             self.train_model()
             
         assert self.model is not None
+        target_model = self.model
+        if use_mitigated:
+            mitigated_res = self.train_mitigated_model()
+            target_model = mitigated_res["model"]
+            
         feat_vector = np.array([[
             float(candidate_features.get("years_experience", 3.0)),
             float(candidate_features.get("skill_count", 5)),
@@ -182,10 +232,10 @@ class BiasModelTrainer:
             float(candidate_features.get("project_count", 3)),
             float(candidate_features.get("graduation_year", 2023)),
             1 if candidate_features.get("has_referral", False) else 0,
-            1 if candidate_features.get("demographic_proxy") == "Group A" else 0
+            0 if use_mitigated else (1 if candidate_features.get("demographic_proxy") == "Group A" else 0)
         ]])
         
-        probs: Any = self.model.predict_proba(feat_vector)
+        probs: Any = target_model.predict_proba(feat_vector)
         prob = float(probs[0][1])
         prediction = "Accept" if prob >= 0.5 else "Reject"
         
@@ -194,6 +244,7 @@ class BiasModelTrainer:
             "confidence": round(prob if prediction == "Accept" else (1 - prob), 3),
             "score_probability": round(prob, 3),
             "feature_vector": candidate_features,
+            "is_mitigated": use_mitigated,
             "training_metrics": self.metrics
         }
 

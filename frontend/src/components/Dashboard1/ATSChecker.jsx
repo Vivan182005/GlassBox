@@ -171,16 +171,44 @@ export default function ATSChecker({
               )}
             </div>
 
-            <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 {detectedAts?.message || 'AI Tier 1 search & Tier 2 Groq fallback enabled'}
               </span>
-              <button
-                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.75rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                onClick={() => setShowUrlOverride(!showUrlOverride)}
-              >
-                <Link size={12} /> {showUrlOverride ? 'Hide URL' : 'Paste Careers URL'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <select
+                  value={detectedAts?.profile?.id || 'generic'}
+                  onChange={async (e) => {
+                    const newId = e.target.value;
+                    if (companyName.trim()) {
+                      try {
+                        const res = await axios.post('/api/ats/correct', { company_name: companyName, ats_id: newId });
+                        setDetectedAts(res.data);
+                      } catch (err) {
+                        console.error("Failed to correct ATS", err);
+                      }
+                    }
+                  }}
+                  className="input-field"
+                  style={{ width: 'auto', padding: '2px 6px', fontSize: '0.72rem', background: 'rgba(0,0,0,0.4)' }}
+                >
+                  <option value="workday">Workday</option>
+                  <option value="greenhouse">Greenhouse</option>
+                  <option value="lever">Lever</option>
+                  <option value="icims">iCIMS</option>
+                  <option value="taleo">Taleo (Oracle)</option>
+                  <option value="smartrecruiters">SmartRecruiters</option>
+                  <option value="successfactors">SAP SuccessFactors</option>
+                  <option value="generic">Generic ATS</option>
+                </select>
+
+                <button
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.75rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  onClick={() => setShowUrlOverride(!showUrlOverride)}
+                >
+                  <Link size={12} /> {showUrlOverride ? 'Hide URL Override' : 'URL Override'}
+                </button>
+              </div>
             </div>
 
             {showUrlOverride && (
@@ -420,31 +448,67 @@ export default function ATSChecker({
             </button>
           </div>
 
-          {/* Collapsible Raw Diff View */}
+          {/* Collapsible Raw Diff View (Scan Reveal Animation) */}
           {showRawDiff && (
-            <div className="glass-panel" style={{ padding: '20px 24px' }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-secondary)' }}>
-                Raw Extracted Text Side-by-Side Diff
-              </h3>
+            <div className="glass-panel animate-scan-reveal" style={{ padding: '20px 24px', borderLeft: '4px solid var(--cyan-accent)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--cyan-accent)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>⚡ Scan Reveal Diff — What You Wrote vs What Survived</span>
+                </h3>
+                <span className="badge badge-neutral mono-val" style={{ fontSize: '0.72rem' }}>
+                  Mangled Spans: {parsedData.mangled_spans?.length || 0}
+                </span>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
                 <div style={{ background: 'rgba(0,0,0,0.4)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
-                    ORIGINAL INPUT TEXT
+                    ORIGINAL INPUT RESUME TEXT
                   </span>
                   <div className="mono-editor" style={{ maxHeight: '280px', overflowY: 'auto' }}>
                     {parsedData.original_text}
                   </div>
                 </div>
 
-                <div style={{ background: 'rgba(0,0,0,0.5)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--signal-amber)', display: 'block', marginBottom: '6px' }}>
-                    EXTRACTED TEXT ({parsedData.ats_profile?.name || 'ATS'})
+                <div style={{ background: 'rgba(0,0,0,0.6)', padding: '14px', borderRadius: '8px', border: '1px solid var(--cyan-accent)' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--cyan-accent)', display: 'block', marginBottom: '6px', fontWeight: 700 }}>
+                    MACHINE EXTRACTED TEXT ({parsedData.ats_profile?.name || 'ATS'})
                   </span>
                   <div className="mono-editor" style={{ maxHeight: '280px', overflowY: 'auto' }}>
                     {parsedData.parsed_text}
                   </div>
                 </div>
               </div>
+
+              {/* Mangled Spans Micro-Label Callouts */}
+              {parsedData.mangled_spans?.length > 0 && (
+                <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--signal-amber)', display: 'block', marginBottom: '8px' }}>
+                    ⚠️ Spans Mangled or Dropped by Parser ({parsedData.mangled_spans.length}):
+                  </span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {parsedData.mangled_spans.map((span, idx) => (
+                      <span
+                        key={idx}
+                        title="⨯ dropped by parser"
+                        style={{
+                          fontSize: '0.72rem',
+                          background: 'rgba(239, 68, 68, 0.15)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          color: '#fca5a5',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          textDecoration: 'line-through',
+                          opacity: 0.85,
+                          cursor: 'help'
+                        }}
+                      >
+                        ⨯ {span.reason || 'dropped by parser'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

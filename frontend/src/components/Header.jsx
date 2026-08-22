@@ -55,13 +55,13 @@ export default function Header({ activeTab, setActiveTab, onLoadSample, groqApiK
           </div>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Persistent Horizontal Pipeline Stepper (Discover -> Reality-Check -> Audit) */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '4px',
-          background: 'rgba(0, 0, 0, 0.4)',
-          padding: '4px',
+          gap: '6px',
+          background: 'rgba(15, 23, 42, 0.6)',
+          padding: '4px 6px',
           borderRadius: '8px',
           border: '1px solid var(--border-color)'
         }}>
@@ -73,17 +73,20 @@ export default function Header({ activeTab, setActiveTab, onLoadSample, groqApiK
               gap: '6px',
               padding: '7px 14px',
               borderRadius: '6px',
-              border: 'none',
+              border: activeTab === 'job_discovery' ? '1px solid var(--cyan-accent)' : '1px solid transparent',
               fontWeight: 600,
               fontSize: '0.82rem',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
-              background: activeTab === 'job_discovery' ? '#374151' : 'transparent',
-              color: activeTab === 'job_discovery' ? '#fff' : 'var(--text-secondary)'
+              background: activeTab === 'job_discovery' ? 'rgba(34, 211, 238, 0.12)' : 'transparent',
+              color: activeTab === 'job_discovery' ? 'var(--cyan-accent)' : 'var(--text-secondary)'
             }}
           >
-            <Sparkles size={14} color="var(--signal-green)" /> Dashboard 1: AI Job Discovery
+            <Sparkles size={14} color={activeTab === 'job_discovery' ? 'var(--cyan-accent)' : 'var(--text-muted)'} />
+            <span>1. Discover</span>
           </button>
+
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>→</span>
 
           <button
             onClick={() => setActiveTab('ats_checker')}
@@ -93,17 +96,20 @@ export default function Header({ activeTab, setActiveTab, onLoadSample, groqApiK
               gap: '6px',
               padding: '7px 14px',
               borderRadius: '6px',
-              border: 'none',
+              border: (activeTab === 'ats_checker' || activeTab === 'ats') ? '1px solid var(--cyan-accent)' : '1px solid transparent',
               fontWeight: 600,
               fontSize: '0.82rem',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
-              background: activeTab === 'ats_checker' || activeTab === 'ats' ? '#374151' : 'transparent',
-              color: activeTab === 'ats_checker' || activeTab === 'ats' ? '#fff' : 'var(--text-secondary)'
+              background: (activeTab === 'ats_checker' || activeTab === 'ats') ? 'rgba(34, 211, 238, 0.12)' : 'transparent',
+              color: (activeTab === 'ats_checker' || activeTab === 'ats') ? 'var(--cyan-accent)' : 'var(--text-secondary)'
             }}
           >
-            <Eye size={14} /> Dashboard 2: ATS Checker
+            <Eye size={14} color={(activeTab === 'ats_checker' || activeTab === 'ats') ? 'var(--cyan-accent)' : 'var(--text-muted)'} />
+            <span>2. Reality-Check</span>
           </button>
+
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>→</span>
 
           <button
             onClick={() => setActiveTab('bias_auditor')}
@@ -113,16 +119,17 @@ export default function Header({ activeTab, setActiveTab, onLoadSample, groqApiK
               gap: '6px',
               padding: '7px 14px',
               borderRadius: '6px',
-              border: 'none',
+              border: (activeTab === 'bias_auditor' || activeTab === 'bias') ? '1px solid var(--cyan-accent)' : '1px solid transparent',
               fontWeight: 600,
               fontSize: '0.82rem',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
-              background: activeTab === 'bias_auditor' || activeTab === 'bias' ? '#374151' : 'transparent',
-              color: activeTab === 'bias_auditor' || activeTab === 'bias' ? '#fff' : 'var(--text-secondary)'
+              background: (activeTab === 'bias_auditor' || activeTab === 'bias') ? 'rgba(34, 211, 238, 0.12)' : 'transparent',
+              color: (activeTab === 'bias_auditor' || activeTab === 'bias') ? 'var(--cyan-accent)' : 'var(--text-secondary)'
             }}
           >
-            <Scale size={14} /> Dashboard 3: Bias Auditor
+            <Scale size={14} color={(activeTab === 'bias_auditor' || activeTab === 'bias') ? 'var(--cyan-accent)' : 'var(--text-muted)'} />
+            <span>3. Audit</span>
           </button>
         </div>
 

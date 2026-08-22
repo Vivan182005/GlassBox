@@ -225,5 +225,49 @@
     "badge_label": "Verified Live URL: https://jobs.smartrecruiters.com/foundersofficeinternoutboxlabs",
     "message": "Verified Founder's Office Intern \u2014 Outbox Labs uses SmartRecruiters via live ATS endpoint https://jobs.smartrecruiters.com/foundersofficeinternoutboxlabs.",
     "detected_url": "https://jobs.smartrecruiters.com/foundersofficeinternoutboxlabs"
+  },
+  "stale_test_corp_xyz": {
+    "detected": true,
+    "company_name": "Stale Test Corp XYZ",
+    "profile": {
+      "id": "workday",
+      "name": "Workday"
+    },
+    "source_tier": "tier1",
+    "cached_at": 1779622345.092888
+  },
+  "acme corp": {
+    "detected": true,
+    "company_name": "Acme Corp",
+    "profile": {
+      "id": "greenhouse",
+      "name": "Greenhouse",
+      "patterns": [
+        "boards\\.greenhouse\\.io",
+        "job-boards\\.greenhouse\\.io",
+        "greenhouse\\.io"
+      ],
+      "posting_patterns": [
+        "boards\\.greenhouse\\.io/[\\w-]+/jobs/\\d+"
+      ],
+      "html_signatures": [
+        "greenhouse\\.io/embed/job_board",
+        "grnh\\.se"
+      ],
+      "parsing_behavior": {
+        "handles_columns": true,
+        "handles_tables": false,
+        "drops_icons": true,
+        "strict_headers": false,
+        "drops_header_footer": false,
+        "description": "Good column detection, but flattens table cells into unstructured rows and drops text attached to graphic icons."
+      }
+    },
+    "confidence": 1.0,
+    "source_tier": "user_confirmed",
+    "badge_label": "User Confirmed",
+    "message": "User confirmed Acme Corp uses Greenhouse.",
+    "cached_at": 1787399345.278324,
+    "from_cache": true
   }
 }

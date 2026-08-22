@@ -152,6 +152,16 @@ app.post('/api/jobs/search', async (req, res) => {
   }
 });
 
+// ATS Manual Correction
+app.post('/api/ats/correct', async (req, res) => {
+  try {
+    const response = await axios.post(`${ML_SERVICE_URL}/api/ats/correct`, req.body, { timeout: 15000 });
+    res.json(response.data);
+  } catch (err) {
+    handleProxyError(err, res);
+  }
+});
+
 // Parsing Simulation (File Upload + Text)
 app.post('/api/parse/simulate', upload.single('file'), async (req, res) => {
   try {
@@ -165,6 +175,7 @@ app.post('/api/parse/simulate', upload.single('file'), async (req, res) => {
     if (req.body.raw_text) formData.append('raw_text', req.body.raw_text);
     if (req.body.careers_url) formData.append('careers_url', req.body.careers_url);
     if (req.body.company_name) formData.append('company_name', req.body.company_name);
+    formData.append('groq_api_key', req.body.groq_api_key || process.env.GROQ_API_KEY || '');
 
     const response = await axios.post(`${ML_SERVICE_URL}/api/parse/simulate`, formData, {
       headers: formData.getHeaders(),
@@ -187,6 +198,7 @@ app.post('/api/batch/parse', upload.single('file'), async (req, res) => {
       });
     }
     if (req.body.raw_text) formData.append('raw_text', req.body.raw_text);
+    formData.append('groq_api_key', req.body.groq_api_key || process.env.GROQ_API_KEY || '');
 
     const response = await axios.post(`${ML_SERVICE_URL}/api/batch/parse`, formData, {
       headers: formData.getHeaders(),
@@ -230,6 +242,16 @@ app.post('/api/model/predict-explain', async (req, res) => {
 app.get('/api/model/fairness', async (req, res) => {
   try {
     const response = await axios.get(`${ML_SERVICE_URL}/api/model/fairness`, { timeout: 60000 });
+    res.json(response.data);
+  } catch (err) {
+    handleProxyError(err, res);
+  }
+});
+
+// Mitigation Audit Comparison
+app.get('/api/model/mitigate', async (req, res) => {
+  try {
+    const response = await axios.get(`${ML_SERVICE_URL}/api/model/mitigate`, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {
     handleProxyError(err, res);

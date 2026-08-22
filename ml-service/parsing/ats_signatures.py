@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import time
 import urllib.request
 from typing import Dict, Any, Optional
 from groq import Groq
@@ -9,7 +10,9 @@ ATS_SIGNATURES = [
     {
         "id": "workday",
         "name": "Workday",
-        "patterns": [r"myworkdayjobs\.com", r"workday\.com", r"wd\d+\.myworkdayjobs\.com"],
+        "patterns": [r"myworkdayjobs\.com", r"workday\.com", r"wd\d+\.myworkdayjobs\.com", r"/wday/"],
+        "posting_patterns": [r"[\w-]+\.myworkdayjobs\.com/[\w-]+/job/"],
+        "html_signatures": [r"wd\d+\.myworkdayjobs\.com", r"workday\.com/en-us"],
         "parsing_behavior": {
             "handles_columns": False,
             "handles_tables": False,
@@ -23,6 +26,8 @@ ATS_SIGNATURES = [
         "id": "greenhouse",
         "name": "Greenhouse",
         "patterns": [r"boards\.greenhouse\.io", r"job-boards\.greenhouse\.io", r"greenhouse\.io"],
+        "posting_patterns": [r"boards\.greenhouse\.io/[\w-]+/jobs/\d+"],
+        "html_signatures": [r"greenhouse\.io/embed/job_board", r"grnh\.se"],
         "parsing_behavior": {
             "handles_columns": True,
             "handles_tables": False,
@@ -36,6 +41,8 @@ ATS_SIGNATURES = [
         "id": "lever",
         "name": "Lever",
         "patterns": [r"jobs\.lever\.co", r"lever\.co"],
+        "posting_patterns": [r"jobs\.lever\.co/[\w-]+/[a-f0-9-]+"],
+        "html_signatures": [r"lever\.co/js", r"jobs\.lever\.co"],
         "parsing_behavior": {
             "handles_columns": True,
             "handles_tables": True,
@@ -49,6 +56,8 @@ ATS_SIGNATURES = [
         "id": "icims",
         "name": "iCIMS",
         "patterns": [r".*\.icims\.com", r"icims\.com"],
+        "posting_patterns": [r"icims\.com/jobs/\d+"],
+        "html_signatures": [r"icims\.com/icims2"],
         "parsing_behavior": {
             "handles_columns": False,
             "handles_tables": False,
@@ -62,6 +71,8 @@ ATS_SIGNATURES = [
         "id": "taleo",
         "name": "Taleo (Oracle)",
         "patterns": [r".*\.taleo\.net", r"taleo\.net"],
+        "posting_patterns": [r"taleo\.net/careersection"],
+        "html_signatures": [r"taleo\.net/careersection"],
         "parsing_behavior": {
             "handles_columns": False,
             "handles_tables": False,
@@ -75,6 +86,8 @@ ATS_SIGNATURES = [
         "id": "smartrecruiters",
         "name": "SmartRecruiters",
         "patterns": [r"jobs\.smartrecruiters\.com", r"smartrecruiters\.com"],
+        "posting_patterns": [r"jobs\.smartrecruiters\.com/[\w-]+/\d+"],
+        "html_signatures": [r"smartrecruiters\.com/job-widget"],
         "parsing_behavior": {
             "handles_columns": True,
             "handles_tables": False,
@@ -88,6 +101,8 @@ ATS_SIGNATURES = [
         "id": "successfactors",
         "name": "SAP SuccessFactors",
         "patterns": [r".*\.successfactors\.com", r"successfactors\.com"],
+        "posting_patterns": [r"successfactors\.com/career"],
+        "html_signatures": [r"successfactors\.com"],
         "parsing_behavior": {
             "handles_columns": False,
             "handles_tables": False,
@@ -112,6 +127,8 @@ GENERIC_ATS_PROFILE = {
         "description": "Baseline ATS parser profile with conservative column and table degradation assumptions."
     }
 }
+
+TTL_SECONDS = 90 * 86400  # 90 days TTL for company ATS cache entries
 
 def get_cache_file_path() -> str:
     possible_paths = [
@@ -144,6 +161,29 @@ def save_company_cache(cache_data: Dict[str, Any]):
     except Exception as e:
         print("Failed to save ATS company cache:", e)
 
+def record_user_confirmation(company_name: str, ats_id: str) -> Dict[str, Any]:
+    """Allows user manual confirmation/correction of ATS platform, saved with higher priority."""
+    comp_clean = company_name.strip()
+    cache_key = comp_clean.lower()
+    matched_ats = next((a for a in ATS_SIGNATURES if a["id"] == ats_id), GENERIC_ATS_PROFILE)
+    
+    result = {
+        "detected": True,
+        "company_name": comp_clean,
+        "profile": matched_ats,
+        "confidence": 1.0,
+        "source_tier": "user_confirmed",
+        "badge_label": "User Confirmed",
+        "message": f"User confirmed {comp_clean} uses {matched_ats['name']}.",
+        "cached_at": time.time(),
+        "from_cache": True
+    }
+    
+    cache = load_company_cache()
+    cache[cache_key] = result
+    save_company_cache(cache)
+    return result
+
 def detect_ats_from_url(url: str) -> Dict[str, Any]:
     if not url or not url.strip():
         return {
@@ -155,6 +195,22 @@ def detect_ats_from_url(url: str) -> Dict[str, Any]:
         }
     
     url_clean = url.strip().lower()
+    
+    # 1. Job posting specific URL regex check
+    for ats in ATS_SIGNATURES:
+        for posting_pat in ats.get("posting_patterns", []):
+            if re.search(posting_pat, url_clean):
+                return {
+                    "detected": True,
+                    "profile": ats,
+                    "confidence": 0.98,
+                    "message": f"Verified {ats['name']} from job-posting URL structure.",
+                    "source_tier": "tier1",
+                    "badge_label": f"Verified Job-Posting URL: {ats['name']}",
+                    "detected_url": url.strip()
+                }
+
+    # 2. General domain patterns
     for ats in ATS_SIGNATURES:
         for pattern in ats["patterns"]:
             if re.search(pattern, url_clean):
@@ -164,9 +220,31 @@ def detect_ats_from_url(url: str) -> Dict[str, Any]:
                     "confidence": 0.95,
                     "message": f"Successfully detected {ats['name']} from live URL domain signature.",
                     "source_tier": "tier1",
+                    "badge_label": f"Verified Domain Signature: {ats['name']}",
                     "detected_url": url.strip()
                 }
-                
+
+    # 3. HTML Scan Fallback for white-labeled careers pages
+    if url_clean.startswith("http://") or url_clean.startswith("https://"):
+        try:
+            req = urllib.request.Request(url.strip(), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=3.0) as res:
+                html_body = res.read().decode('utf-8', errors='ignore')
+                for ats in ATS_SIGNATURES:
+                    for sig in ats.get("html_signatures", []):
+                        if re.search(sig, html_body, re.IGNORECASE):
+                            return {
+                                "detected": True,
+                                "profile": ats,
+                                "confidence": 0.90,
+                                "message": f"Detected {ats['name']} embedded script/iframe in page HTML.",
+                                "source_tier": "tier1",
+                                "badge_label": f"HTML Script Signature: {ats['name']}",
+                                "detected_url": url.strip()
+                            }
+        except Exception:
+            pass
+
     return {
         "detected": False,
         "profile": GENERIC_ATS_PROFILE,
@@ -182,12 +260,17 @@ def detect_ats_by_company_name(company_name: str, groq_api_key_override: Optiona
     comp_clean = company_name.strip()
     cache_key = comp_clean.lower()
     
-    # 1. Check local company cache
+    # 1. Check local company cache (with 90-day TTL check)
     cache = load_company_cache()
     if cache_key in cache:
         cached_entry = cache[cache_key]
-        cached_entry["from_cache"] = True
-        return cached_entry
+        cached_at = cached_entry.get("cached_at", 0)
+        is_stale = (time.time() - cached_at) > TTL_SECONDS if cached_at else False
+        is_user_confirmed = cached_entry.get("source_tier") == "user_confirmed"
+
+        if not is_stale or is_user_confirmed:
+            cached_entry["from_cache"] = True
+            return cached_entry
 
     # 2. Tier 1: Probe direct ATS subdomains
     slug = re.sub(r"[^a-zA-Z0-9]", "", comp_clean.lower())
@@ -203,7 +286,6 @@ def detect_ats_by_company_name(company_name: str, groq_api_key_override: Optiona
         (f"https://{slug}.taleo.net", "taleo")
     ]
     
-    tier1_attempted = True
     for url, ats_id in probe_patterns:
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -219,7 +301,8 @@ def detect_ats_by_company_name(company_name: str, groq_api_key_override: Optiona
                     "badge_label": f"Verified Live URL: {url}",
                     "message": f"Verified {comp_clean} uses {matched_ats['name']} via live ATS endpoint {url}.",
                     "detected_url": url,
-                    "tier1_attempted": True
+                    "tier1_attempted": True,
+                    "cached_at": time.time()
                 }
                 cache[cache_key] = result
                 save_company_cache(cache)
@@ -265,7 +348,8 @@ def detect_ats_by_company_name(company_name: str, groq_api_key_override: Optiona
                 "badge_label": "AI Best Guess — Unverified",
                 "message": f"AI Best Guess for {comp_clean}: Likely uses {matched_ats['name']}. ({data.get('reasoning', '')})",
                 "reasoning": data.get("reasoning", ""),
-                "tier1_attempted": True
+                "tier1_attempted": True,
+                "cached_at": time.time()
             }
             cache[cache_key] = result
             save_company_cache(cache)
@@ -281,6 +365,8 @@ def detect_ats_by_company_name(company_name: str, groq_api_key_override: Optiona
         "confidence": 0.30,
         "source_tier": "tier2",
         "badge_label": "Generic ATS Fallback",
-        "message": f"Could not verify ATS for {comp_clean}. Using Generic ATS profile."
+        "message": f"Could not verify ATS for {comp_clean}. Using Generic ATS profile.",
+        "cached_at": time.time()
     }
     return res_generic
+
