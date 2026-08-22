@@ -107,7 +107,7 @@ class TaxonomyService:
 
             best_match = None
             for db_role in all_db_roles:
-                db_norm = db_role["normalized_name"].lower()
+                db_norm = (db_role.get("normalized_name") or db_role.get("name") or "").lower()
                 if raw_clean == db_norm or raw_clean in db_norm or db_norm in raw_clean:
                     best_match = db_role
                     break
@@ -115,7 +115,8 @@ class TaxonomyService:
             if not best_match and all_db_roles:
                 tokens = set(re.findall(r"\w+", raw_clean))
                 for db_role in all_db_roles:
-                    db_tokens = set(re.findall(r"\w+", db_role["normalized_name"]))
+                    db_norm = (db_role.get("normalized_name") or db_role.get("name") or "")
+                    db_tokens = set(re.findall(r"\w+", db_norm))
                     if len(tokens.intersection(db_tokens)) >= 1:
                         best_match = db_role
                         break
@@ -157,7 +158,7 @@ class TaxonomyService:
 
             best_match = None
             for db_skill in all_db_skills:
-                db_norm = db_skill["normalized_name"].lower()
+                db_norm = (db_skill.get("normalized_name") or db_skill.get("name") or "").lower()
                 if raw_clean == db_norm or raw_clean in db_norm or db_norm in raw_clean:
                     best_match = db_skill
                     break
@@ -191,7 +192,7 @@ class TaxonomyService:
 
         if raw_clean:
             for loc in all_locs:
-                loc_norm = loc["normalized_name"].lower()
+                loc_norm = (loc.get("normalized_name") or loc.get("name") or "").lower()
                 if raw_clean in loc_norm or loc_norm in raw_clean or loc.get("city", "").lower() in raw_clean:
                     return [{
                         "id": loc["id"],

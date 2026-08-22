@@ -234,7 +234,7 @@
       "name": "Workday"
     },
     "source_tier": "tier1",
-    "cached_at": 1779622679.356768
+    "cached_at": 1779622873.8835661
   },
   "acme corp": {
     "detected": true,
@@ -267,7 +267,7 @@
     "source_tier": "user_confirmed",
     "badge_label": "User Confirmed",
     "message": "User confirmed Acme Corp uses Greenhouse.",
-    "cached_at": 1787399682.717993,
+    "cached_at": 1787399877.338333,
     "from_cache": true
   }
 }
