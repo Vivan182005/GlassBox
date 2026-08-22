@@ -47,6 +47,8 @@ export default function App() {
     demographic_proxy: 'Group A'
   });
 
+  const [autoRunAtsCheck, setAutoRunAtsCheck] = useState(false);
+
   // Load real Kaggle sample candidate & initial company lookup on mount
   useEffect(() => {
     handleLoadSample();
@@ -81,13 +83,14 @@ export default function App() {
     }
   };
 
-  // Switch to ATS Checker from Job Discovery card
+  // Switch to ATS Checker from Job Discovery card with auto-trigger single-click analysis
   const handleSelectJobForATS = (job) => {
     if (job) {
       if (job.description) setJdText(job.description);
       if (job.companyName) setCompanyName(job.companyName);
       if (job.company) setCompanyName(job.company);
     }
+    setAutoRunAtsCheck(true);
     setActiveTab('ats_checker');
   };
 
@@ -146,6 +149,8 @@ export default function App() {
             setMatchData={setMatchData}
             groqApiKey={groqApiKey}
             onHandoffToAudit={handleHandoffToAudit}
+            autoRunAtsCheck={autoRunAtsCheck}
+            setAutoRunAtsCheck={setAutoRunAtsCheck}
           />
         ) : (
           <BiasAuditor

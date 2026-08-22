@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Building2, AlertTriangle, CheckCircle, ArrowRight, Layers, Cpu, Sparkles, RefreshCw, ChevronDown, ChevronUp, FileText, Upload, X, Link } from 'lucide-react';
 import axios from 'axios';
 
@@ -18,7 +18,9 @@ export default function ATSChecker({
   matchData,
   setMatchData,
   groqApiKey,
-  onHandoffToAudit
+  onHandoffToAudit,
+  autoRunAtsCheck,
+  setAutoRunAtsCheck
 }) {
   const [loadingParse, setLoadingParse] = useState(false);
   const [loadingMatch, setLoadingMatch] = useState(false);
@@ -31,6 +33,13 @@ export default function ATSChecker({
   const [showUrlOverride, setShowUrlOverride] = useState(false);
   const [showRawDiff, setShowRawDiff] = useState(false);
   const [showBatchMatrix, setShowBatchMatrix] = useState(false);
+
+  useEffect(() => {
+    if (autoRunAtsCheck) {
+      handleSimulateAndMatch();
+      if (setAutoRunAtsCheck) setAutoRunAtsCheck(false);
+    }
+  }, [autoRunAtsCheck]);
 
   // Handle Company Name lookup
   const handleCompanyLookup = async (name) => {
