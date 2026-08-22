@@ -179,7 +179,10 @@ app.post('/api/jobs/search', async (req, res) => {
       preferences: req.body.preferences,
       decision_factors: req.body.decision_factors,
       gemini_api_key: req.body.gemini_api_key || process.env.GEMINI_API_KEY || '',
-      groq_api_key: req.body.groq_api_key || process.env.GROQ_API_KEY || ''
+      groq_api_key: req.body.groq_api_key || process.env.GROQ_API_KEY || '',
+      linkedin_client_id: process.env.LINKEDIN_CLIENT_ID || '',
+      linkedin_client_secret: process.env.LINKEDIN_CLIENT_SECRET || '',
+      linkedin_access_token: process.env.LINKEDIN_ACCESS_TOKEN || ''
     }, { timeout: 60000 });
     res.json(response.data);
   } catch (err) {

@@ -53,6 +53,9 @@ class JobSearchRequest(BaseModel):
     decision_factors: Optional[Dict[str, float]] = None
     gemini_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    linkedin_client_id: Optional[str] = None
+    linkedin_client_secret: Optional[str] = None
+    linkedin_access_token: Optional[str] = None
 
 class MatchRequest(BaseModel):
     resume_text: str
@@ -163,8 +166,16 @@ async def extract_profile_from_resume(
 
 @app.post("/api/jobs/search")
 def search_and_rank_jobs_endpoint(req: JobSearchRequest):
+    prefs = dict(req.preferences or {})
+    if req.linkedin_access_token:
+        prefs["linkedin_access_token"] = req.linkedin_access_token
+    if req.linkedin_client_id:
+        prefs["linkedin_client_id"] = req.linkedin_client_id
+    if req.linkedin_client_secret:
+        prefs["linkedin_client_secret"] = req.linkedin_client_secret
+
     return job_discovery_engine.search_and_rank_jobs(
-        preferences=req.preferences,
+        preferences=prefs,
         decision_factors=req.decision_factors,
         api_key_override=req.gemini_api_key or req.groq_api_key
     )

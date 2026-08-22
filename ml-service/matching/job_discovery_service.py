@@ -32,9 +32,11 @@ class LinkedInProvider:
         locations = query_params.get("preferred_locations") or ["Bangalore, India", "Remote"]
         skills = query_params.get("skills") or ["Python", "React.js", "SQL"]
 
-        if self.is_configured():
+        token = (query_params.get("linkedin_access_token") or self.access_token or os.environ.get("LINKEDIN_ACCESS_TOKEN", "")).strip()
+
+        if token:
             headers = {
-                "Authorization": f"Bearer {self.access_token}",
+                "Authorization": f"Bearer {token}",
                 "X-Restli-Protocol-Version": "2.0.0",
                 "Content-Type": "application/json"
             }
