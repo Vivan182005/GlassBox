@@ -28,3 +28,7 @@ frontend/dist-ssr/
 !.vscode/settings.json
 .idea/
 *.log
+
+# Runtime caches
+ml-service/data/ats_lookup_cache.json
+.claude/settings.local.json

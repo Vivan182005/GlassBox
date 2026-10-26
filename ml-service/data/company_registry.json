@@ -1,0 +1,863 @@
+{
+ "verified_on": "2026-10-26",
+ "companies": [
+  {
+   "name": "3M",
+   "domain": "3m.com",
+   "ats": "workday",
+   "slug": "3m",
+   "wd": "wd1",
+   "site": "Search",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "AbbVie",
+   "domain": "abbvie.com",
+   "ats": "smartrecruiters",
+   "slug": "AbbVie"
+  },
+  {
+   "name": "Adobe",
+   "domain": "adobe.com",
+   "ats": "workday",
+   "slug": "adobe",
+   "wd": "wd5",
+   "site": "external_experienced",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Agoda",
+   "domain": "agoda.com",
+   "ats": "greenhouse",
+   "slug": "agoda"
+  },
+  {
+   "name": "Airbnb",
+   "domain": "airbnb.com",
+   "ats": "greenhouse",
+   "slug": "airbnb"
+  },
+  {
+   "name": "Analog Devices",
+   "domain": "analog.com",
+   "ats": "workday",
+   "slug": "analogdevices",
+   "wd": "wd1",
+   "site": "External",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Appian",
+   "domain": "appian.com",
+   "ats": "greenhouse",
+   "slug": "appian"
+  },
+  {
+   "name": "AstraZeneca",
+   "domain": "astrazeneca.com",
+   "ats": "workday",
+   "slug": "astrazeneca",
+   "wd": "wd3",
+   "site": "Careers",
+   "india_facet": null
+  },
+  {
+   "name": "athenahealth",
+   "domain": "athenahealth.com",
+   "ats": "workday",
+   "slug": "athenahealth",
+   "wd": "wd1",
+   "site": "External",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Atlan",
+   "domain": "atlan.com",
+   "ats": "ashby",
+   "slug": "atlan"
+  },
+  {
+   "name": "Autodesk",
+   "domain": "autodesk.com",
+   "ats": "workday",
+   "slug": "autodesk",
+   "wd": "wd1",
+   "site": "Ext",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Bank of America",
+   "domain": "bankofamerica.com",
+   "ats": "workday",
+   "slug": "ghr",
+   "wd": "wd1",
+   "site": "Lateral-US",
+   "india_facet": null
+  },
+  {
+   "name": "Barclays",
+   "domain": "barclays.com",
+   "ats": "workday",
+   "slug": "barclays",
+   "wd": "wd3",
+   "site": "External_Career_Site_Barclays",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "BlackRock",
+   "domain": "blackrock.com",
+   "ats": "workday",
+   "slug": "blackrock",
+   "wd": "wd1",
+   "site": "BlackRock_Professional",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Boeing",
+   "domain": "boeing.com",
+   "ats": "workday",
+   "slug": "boeing",
+   "wd": "wd1",
+   "site": "EXTERNAL_CAREERS",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Bosch",
+   "domain": "bosch.com",
+   "ats": "smartrecruiters",
+   "slug": "BoschGroup"
+  },
+  {
+   "name": "Broadcom",
+   "domain": "broadcom.com",
+   "ats": "workday",
+   "slug": "broadcom",
+   "wd": "wd1",
+   "site": "External_Career",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Cadence",
+   "domain": "cadence.com",
+   "ats": "workday",
+   "slug": "cadence",
+   "wd": "wd1",
+   "site": "External_Careers",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "Canva",
+   "domain": "canva.com",
+   "ats": "smartrecruiters",
+   "slug": "Canva"
+  },
+  {
+   "name": "Celonis",
+   "domain": "celonis.com",
+   "ats": "greenhouse",
+   "slug": "celonis"
+  },
+  {
+   "name": "ChargePoint",
+   "domain": "chargepoint.com",
+   "ats": "greenhouse",
+   "slug": "chargepoint"
+  },
+  {
+   "name": "Chevron",
+   "domain": "chevron.com",
+   "ats": "workday",
+   "slug": "chevron",
+   "wd": "wd5",
+   "site": "jobs",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Cisco",
+   "domain": "cisco.com",
+   "ats": "workday",
+   "slug": "cisco",
+   "wd": "wd5",
+   "site": "Cisco_Careers",
+   "india_facet": null
+  },
+  {
+   "name": "Citi",
+   "domain": "citi.com",
+   "ats": "workday",
+   "slug": "citi",
+   "wd": "wd5",
+   "site": "2",
+   "india_facet": null
+  },
+  {
+   "name": "Cockroach Labs",
+   "domain": "cockroachlabs.com",
+   "ats": "greenhouse",
+   "slug": "cockroachlabs"
+  },
+  {
+   "name": "Cognition",
+   "domain": "cognition.ai",
+   "ats": "ashby",
+   "slug": "cognition"
+  },
+  {
+   "name": "Coinbase",
+   "domain": "coinbase.com",
+   "ats": "greenhouse",
+   "slug": "coinbase"
+  },
+  {
+   "name": "Composio",
+   "domain": "composio.dev",
+   "ats": "ashby",
+   "slug": "composio"
+  },
+  {
+   "name": "Continental",
+   "domain": "continental.com",
+   "ats": "smartrecruiters",
+   "slug": "Continental"
+  },
+  {
+   "name": "Coursera",
+   "domain": "coursera.org",
+   "ats": "greenhouse",
+   "slug": "coursera"
+  },
+  {
+   "name": "CRED",
+   "domain": "cred.club",
+   "ats": "lever",
+   "slug": "cred"
+  },
+  {
+   "name": "CrowdStrike",
+   "domain": "crowdstrike.com",
+   "ats": "workday",
+   "slug": "crowdstrike",
+   "wd": "wd5",
+   "site": "crowdstrikecareers",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Cursor",
+   "domain": "cursor.com",
+   "ats": "ashby",
+   "slug": "cursor"
+  },
+  {
+   "name": "Databricks",
+   "domain": "databricks.com",
+   "ats": "greenhouse",
+   "slug": "databricks"
+  },
+  {
+   "name": "Datadog",
+   "domain": "datadoghq.com",
+   "ats": "greenhouse",
+   "slug": "datadog"
+  },
+  {
+   "name": "Deepgram",
+   "domain": "deepgram.com",
+   "ats": "ashby",
+   "slug": "deepgram"
+  },
+  {
+   "name": "Deutsche Bank",
+   "domain": "db.com",
+   "ats": "workday",
+   "slug": "db",
+   "wd": "wd3",
+   "site": "DBWebSite",
+   "india_facet": null
+  },
+  {
+   "name": "Druva",
+   "domain": "druva.com",
+   "ats": "greenhouse",
+   "slug": "druva"
+  },
+  {
+   "name": "Duolingo",
+   "domain": "duolingo.com",
+   "ats": "greenhouse",
+   "slug": "duolingo"
+  },
+  {
+   "name": "Elastic",
+   "domain": "elastic.co",
+   "ats": "greenhouse",
+   "slug": "elastic"
+  },
+  {
+   "name": "ElevenLabs",
+   "domain": "elevenlabs.io",
+   "ats": "ashby",
+   "slug": "elevenlabs"
+  },
+  {
+   "name": "Equinix",
+   "domain": "equinix.com",
+   "ats": "workday",
+   "slug": "equinix",
+   "wd": "wd1",
+   "site": "External",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "Experian",
+   "domain": "experian.com",
+   "ats": "smartrecruiters",
+   "slug": "Experian"
+  },
+  {
+   "name": "FamPay",
+   "domain": "famapp.in",
+   "ats": "lever",
+   "slug": "fampay"
+  },
+  {
+   "name": "Figma",
+   "domain": "figma.com",
+   "ats": "greenhouse",
+   "slug": "figma"
+  },
+  {
+   "name": "Fivetran",
+   "domain": "fivetran.com",
+   "ats": "greenhouse",
+   "slug": "fivetran"
+  },
+  {
+   "name": "Freshworks",
+   "domain": "freshworks.com",
+   "ats": "smartrecruiters",
+   "slug": "Freshworks"
+  },
+  {
+   "name": "Gartner",
+   "domain": "gartner.com",
+   "ats": "workday",
+   "slug": "gartner",
+   "wd": "wd5",
+   "site": "EXT",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "GE Aerospace",
+   "domain": "geaerospace.com",
+   "ats": "workday",
+   "slug": "geaerospace",
+   "wd": "wd5",
+   "site": "GE_ExternalSite",
+   "india_facet": null
+  },
+  {
+   "name": "GitLab",
+   "domain": "gitlab.com",
+   "ats": "greenhouse",
+   "slug": "gitlab"
+  },
+  {
+   "name": "Groww",
+   "domain": "groww.in",
+   "ats": "greenhouse",
+   "slug": "groww"
+  },
+  {
+   "name": "GSK",
+   "domain": "gsk.com",
+   "ats": "workday",
+   "slug": "gsk",
+   "wd": "wd5",
+   "site": "GSKCareers",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "HackerRank",
+   "domain": "hackerrank.com",
+   "ats": "greenhouse",
+   "slug": "hackerrank"
+  },
+  {
+   "name": "Harvey",
+   "domain": "harvey.ai",
+   "ats": "ashby",
+   "slug": "harvey"
+  },
+  {
+   "name": "Hewlett Packard Enterprise",
+   "domain": "hpe.com",
+   "ats": "workday",
+   "slug": "hpe",
+   "wd": "wd5",
+   "site": "Jobsathpe",
+   "india_facet": null
+  },
+  {
+   "name": "HighRadius",
+   "domain": "highradius.com",
+   "ats": "greenhouse",
+   "slug": "highradius"
+  },
+  {
+   "name": "HP",
+   "domain": "hp.com",
+   "ats": "workday",
+   "slug": "hp",
+   "wd": "wd5",
+   "site": "ExternalCareerSite",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "InMobi",
+   "domain": "inmobi.com",
+   "ats": "greenhouse",
+   "slug": "inmobi"
+  },
+  {
+   "name": "Intel",
+   "domain": "intel.com",
+   "ats": "workday",
+   "slug": "intel",
+   "wd": "wd1",
+   "site": "External",
+   "india_facet": null
+  },
+  {
+   "name": "KLA",
+   "domain": "kla.com",
+   "ats": "workday",
+   "slug": "kla",
+   "wd": "wd1",
+   "site": "Search",
+   "india_facet": null
+  },
+  {
+   "name": "LSEG",
+   "domain": "lseg.com",
+   "ats": "workday",
+   "slug": "lseg",
+   "wd": "wd3",
+   "site": "Careers",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Marvell",
+   "domain": "marvell.com",
+   "ats": "workday",
+   "slug": "marvell",
+   "wd": "wd1",
+   "site": "MarvellCareers",
+   "india_facet": null
+  },
+  {
+   "name": "Mastercard",
+   "domain": "mastercard.com",
+   "ats": "workday",
+   "slug": "mastercard",
+   "wd": "wd1",
+   "site": "CorporateCareers",
+   "india_facet": null
+  },
+  {
+   "name": "Meesho",
+   "domain": "meesho.com",
+   "ats": "lever",
+   "slug": "meesho"
+  },
+  {
+   "name": "Micron",
+   "domain": "micron.com",
+   "ats": "workday",
+   "slug": "micron",
+   "wd": "wd1",
+   "site": "External",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Mixpanel",
+   "domain": "mixpanel.com",
+   "ats": "greenhouse",
+   "slug": "mixpanel"
+  },
+  {
+   "name": "MongoDB",
+   "domain": "mongodb.com",
+   "ats": "greenhouse",
+   "slug": "mongodb"
+  },
+  {
+   "name": "Morgan Stanley",
+   "domain": "morganstanley.com",
+   "ats": "workday",
+   "slug": "ms",
+   "wd": "wd5",
+   "site": "External",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "Motorola Solutions",
+   "domain": "motorolasolutions.com",
+   "ats": "workday",
+   "slug": "motorolasolutions",
+   "wd": "wd5",
+   "site": "Careers",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Netskope",
+   "domain": "netskope.com",
+   "ats": "greenhouse",
+   "slug": "netskope"
+  },
+  {
+   "name": "New Relic",
+   "domain": "newrelic.com",
+   "ats": "greenhouse",
+   "slug": "newrelic"
+  },
+  {
+   "name": "Notion",
+   "domain": "notion.so",
+   "ats": "ashby",
+   "slug": "notion"
+  },
+  {
+   "name": "Novartis",
+   "domain": "novartis.com",
+   "ats": "workday",
+   "slug": "novartis",
+   "wd": "wd3",
+   "site": "Novartis_Careers",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "NVIDIA",
+   "domain": "nvidia.com",
+   "ats": "workday",
+   "slug": "nvidia",
+   "wd": "wd5",
+   "site": "NVIDIAExternalCareerSite",
+   "india_facet": null
+  },
+  {
+   "name": "NXP Semiconductors",
+   "domain": "nxp.com",
+   "ats": "workday",
+   "slug": "nxp",
+   "wd": "wd3",
+   "site": "careers",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "Observe.AI",
+   "domain": "observe.ai",
+   "ats": "greenhouse",
+   "slug": "observeai"
+  },
+  {
+   "name": "Okta",
+   "domain": "okta.com",
+   "ats": "greenhouse",
+   "slug": "okta"
+  },
+  {
+   "name": "OpenAI",
+   "domain": "openai.com",
+   "ats": "ashby",
+   "slug": "openai"
+  },
+  {
+   "name": "PayPal",
+   "domain": "paypal.com",
+   "ats": "workday",
+   "slug": "paypal",
+   "wd": "wd1",
+   "site": "jobs",
+   "india_facet": null
+  },
+  {
+   "name": "Paytm",
+   "domain": "paytm.com",
+   "ats": "lever",
+   "slug": "paytm"
+  },
+  {
+   "name": "Pfizer",
+   "domain": "pfizer.com",
+   "ats": "workday",
+   "slug": "pfizer",
+   "wd": "wd1",
+   "site": "PfizerCareers",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "Philips",
+   "domain": "philips.com",
+   "ats": "workday",
+   "slug": "philips",
+   "wd": "wd3",
+   "site": "jobs-and-careers",
+   "india_facet": null
+  },
+  {
+   "name": "Plane",
+   "domain": "plane.so",
+   "ats": "ashby",
+   "slug": "plane"
+  },
+  {
+   "name": "Pocket FM",
+   "domain": "pocketfm.com",
+   "ats": "lever",
+   "slug": "pocketfm"
+  },
+  {
+   "name": "PwC",
+   "domain": "pwc.com",
+   "ats": "workday",
+   "slug": "pwc",
+   "wd": "wd3",
+   "site": "Global_Experienced_Careers",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Razorpay",
+   "domain": "razorpay.com",
+   "ats": "greenhouse",
+   "slug": "razorpaysoftwareprivatelimited"
+  },
+  {
+   "name": "Red Hat",
+   "domain": "redhat.com",
+   "ats": "workday",
+   "slug": "redhat",
+   "wd": "wd5",
+   "site": "jobs",
+   "india_facet": null
+  },
+  {
+   "name": "Roblox",
+   "domain": "roblox.com",
+   "ats": "greenhouse",
+   "slug": "roblox"
+  },
+  {
+   "name": "Rubrik",
+   "domain": "rubrik.com",
+   "ats": "greenhouse",
+   "slug": "rubrik"
+  },
+  {
+   "name": "Salesforce",
+   "domain": "salesforce.com",
+   "ats": "workday",
+   "slug": "salesforce",
+   "wd": "wd12",
+   "site": "External_Career_Site",
+   "india_facet": null
+  },
+  {
+   "name": "Samsara",
+   "domain": "samsara.com",
+   "ats": "greenhouse",
+   "slug": "samsara"
+  },
+  {
+   "name": "Sanofi",
+   "domain": "sanofi.com",
+   "ats": "workday",
+   "slug": "sanofi",
+   "wd": "wd3",
+   "site": "SanofiCareers",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Sarvam AI",
+   "domain": "sarvam.ai",
+   "ats": "ashby",
+   "slug": "sarvam"
+  },
+  {
+   "name": "SentinelOne",
+   "domain": "sentinelone.com",
+   "ats": "greenhouse",
+   "slug": "sentinellabs"
+  },
+  {
+   "name": "ServiceNow",
+   "domain": "servicenow.com",
+   "ats": "smartrecruiters",
+   "slug": "ServiceNow"
+  },
+  {
+   "name": "Shell",
+   "domain": "shell.com",
+   "ats": "workday",
+   "slug": "shell",
+   "wd": "wd3",
+   "site": "ShellCareers",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Sigmoid",
+   "domain": "sigmoid.com",
+   "ats": "greenhouse",
+   "slug": "sigmoid"
+  },
+  {
+   "name": "Spotify",
+   "domain": "spotify.com",
+   "ats": "lever",
+   "slug": "spotify"
+  },
+  {
+   "name": "State Street",
+   "domain": "statestreet.com",
+   "ats": "workday",
+   "slug": "statestreet",
+   "wd": "wd1",
+   "site": "Global",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "Stripe",
+   "domain": "stripe.com",
+   "ats": "greenhouse",
+   "slug": "stripe"
+  },
+  {
+   "name": "Sumo Logic",
+   "domain": "sumologic.com",
+   "ats": "greenhouse",
+   "slug": "sumologic"
+  },
+  {
+   "name": "Sutherland",
+   "domain": "sutherlandglobal.com",
+   "ats": "smartrecruiters",
+   "slug": "Sutherland"
+  },
+  {
+   "name": "Swiggy",
+   "domain": "swiggy.com",
+   "ats": "smartrecruiters",
+   "slug": "Swiggy"
+  },
+  {
+   "name": "Target",
+   "domain": "target.com",
+   "ats": "workday",
+   "slug": "target",
+   "wd": "wd5",
+   "site": "targetcareers",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "Temporal",
+   "domain": "temporal.io",
+   "ats": "ashby",
+   "slug": "temporal"
+  },
+  {
+   "name": "Toast",
+   "domain": "toasttab.com",
+   "ats": "greenhouse",
+   "slug": "toast"
+  },
+  {
+   "name": "Twilio",
+   "domain": "twilio.com",
+   "ats": "greenhouse",
+   "slug": "twilio"
+  },
+  {
+   "name": "Unilever",
+   "domain": "unilever.com",
+   "ats": "workday",
+   "slug": "unilever",
+   "wd": "wd3",
+   "site": "Unilever_Experienced_Professionals",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Vercel",
+   "domain": "vercel.com",
+   "ats": "greenhouse",
+   "slug": "vercel"
+  },
+  {
+   "name": "Visa",
+   "domain": "visa.com",
+   "ats": "workday",
+   "slug": "visa",
+   "wd": "wd5",
+   "site": "Visa",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Wells Fargo",
+   "domain": "wellsfargo.com",
+   "ats": "workday",
+   "slug": "wf",
+   "wd": "wd1",
+   "site": "WellsFargoJobs",
+   "india_facet": "locationCountry"
+  },
+  {
+   "name": "Western Digital",
+   "domain": "westerndigital.com",
+   "ats": "smartrecruiters",
+   "slug": "WesternDigital"
+  },
+  {
+   "name": "Workday",
+   "domain": "workday.com",
+   "ats": "workday",
+   "slug": "workday",
+   "wd": "wd5",
+   "site": "Workday",
+   "india_facet": "Location_Country"
+  },
+  {
+   "name": "Writer",
+   "domain": "writer.com",
+   "ats": "ashby",
+   "slug": "writer"
+  },
+  {
+   "name": "YugabyteDB",
+   "domain": "yugabyte.com",
+   "ats": "greenhouse",
+   "slug": "yugabyte"
+  },
+  {
+   "name": "Zeta",
+   "domain": "zeta.tech",
+   "ats": "lever",
+   "slug": "zeta"
+  },
+  {
+   "name": "Zeta Global",
+   "domain": "zetaglobal.com",
+   "ats": "greenhouse",
+   "slug": "zetaglobal"
+  },
+  {
+   "name": "Zscaler",
+   "domain": "zscaler.com",
+   "ats": "greenhouse",
+   "slug": "zscaler"
+  },
+  {
+   "name": "Zuora",
+   "domain": "zuora.com",
+   "ats": "greenhouse",
+   "slug": "zuora"
+  }
+ ]
+}

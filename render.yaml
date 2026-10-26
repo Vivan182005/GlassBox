@@ -1,28 +1,19 @@
 services:
-  # 1. Node.js Express API Gateway
+  # 1. Node.js gateway: streams /api/* to the ML service
   - type: web
     name: glassbox-gateway
     env: node
-    region: singapore # or oregon, frankfurt, etc.
+    region: singapore
     rootDir: gateway
     buildCommand: npm install
     startCommand: npm start
     envVars:
-      - key: PORT
-        value: 5001
       - key: ML_SERVICE_URL
-        fromService:
-          type: web
-          name: glassbox-ml-service
-          property: url
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: GROQ_API_KEY
+        value: https://glassbox-ml-service.onrender.com
+      - key: ALLOWED_ORIGINS
         sync: false
 
-  # 2. Python FastAPI ML Service
+  # 2. Python FastAPI ML service
   - type: web
     name: glassbox-ml-service
     env: python
@@ -32,6 +23,10 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RAPIDAPI_KEY
         sync: false
       - key: SUPABASE_URL
         sync: false

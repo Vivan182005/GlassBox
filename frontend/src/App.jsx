@@ -1,177 +1,89 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import Header from './components/Header';
-import JobDiscovery from './components/Dashboard1/JobDiscovery';
-import ATSChecker from './components/Dashboard1/ATSChecker';
-import BiasAuditor from './components/Dashboard2/BiasAuditor';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import Nav from './components/Nav';
+import CheckDrawer from './components/CheckDrawer';
+import { Toast, Spinner } from './components/ui';
+import ScanView from './views/ScanView';
+import JobsView, { cityFromLocation } from './views/JobsView';
+import CompanyView from './views/CompanyView';
 
-axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || '';
+const FairnessView = lazy(() => import('./views/FairnessView'));
+import { api } from './api';
+import { storage } from './lib/format';
 
-const DEFAULT_SAMPLE_JD = `Role: Senior Software Engineer
-Location: San Francisco, CA (Hybrid)
-
-Responsibilities:
-- Design, build, and maintain production web applications and distributed backend microservices.
-- Optimize database queries (PostgreSQL/SQL) and deploy cloud containers via Docker and AWS.
-- Collaborate with product managers and UX designers to deliver polished feature updates.
-
-Requirements:
-- 4+ years of professional full stack software engineering experience.
-- Strong proficiency in Python, React, Node.js, and SQL databases.
-- Experience with containerization (Docker) and cloud infrastructure.
-- Bachelor's degree in Computer Science or equivalent field.`;
+const DEFAULT_FEATURES = {
+  years_experience: 2, skill_count: 8, college_tier: 'Tier 2/3', employment_gap_months: 0, has_internship: true,
+  gpa: 3.2, project_count: 3, graduation_year: 2023, has_referral: false, demographic_proxy: 'Group B',
+};
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('job_discovery');
-  const [resumeText, setResumeText] = useState('');
-  const [jdText, setJdText] = useState(DEFAULT_SAMPLE_JD);
-  const [companyName, setCompanyName] = useState('Stripe');
-  const [careersUrl, setCareersUrl] = useState('');
-  const [detectedAts, setDetectedAts] = useState(null);
-  const [parsedData, setParsedData] = useState(null);
-  const [matchData, setMatchData] = useState(null);
-  const [groqApiKey, setGroqApiKey] = useState('');
-  const [autoFillSource, setAutoFillSource] = useState(null); // 'kaggle_sample' | 'your_resume' | null
+  const [view, setView] = useState(() => storage.get('gb.view', 'scan'));
+  const [analysis, setAnalysis] = useState(() => storage.get('gb.analysis'));
+  const [roles, setRoles] = useState(() => storage.get('gb.roles', []));
+  const [filters, setFilters] = useState(() => storage.get('gb.filters', { cities: [], maxAge: 0 }));
+  const [jobResults, setJobResults] = useState(null);
+  const [checkJob, setCheckJob] = useState(null);
+  const [features, setFeatures] = useState(() => analysis?.profile?.bias_features ? { ...DEFAULT_FEATURES, ...analysis.profile.bias_features } : DEFAULT_FEATURES);
+  const [health, setHealth] = useState(null);
+  const [meta, setMeta] = useState(null);
+  const [toast, setToast] = useState(null);
 
-  // Dashboard 3 candidate feature state
-  const [candidateFeatures, setCandidateFeatures] = useState({
-    years_experience: 4.5,
-    skill_count: 7,
-    college_tier: 'Tier 1',
-    employment_gap_months: 6,
-    has_internship: true,
-    gpa: 3.8,
-    project_count: 4,
-    graduation_year: 2023,
-    has_referral: false,
-    demographic_proxy: 'Group A'
-  });
+  useEffect(() => { storage.set('gb.view', view); window.scrollTo({ top: 0 }); }, [view]);
+  useEffect(() => { storage.set('gb.analysis', analysis); }, [analysis]);
+  useEffect(() => { storage.set('gb.roles', roles); }, [roles]);
+  useEffect(() => { storage.set('gb.filters', filters); }, [filters]);
 
-  const [autoRunAtsCheck, setAutoRunAtsCheck] = useState(false);
-
-  // Load real Kaggle sample candidate & initial company lookup on mount
   useEffect(() => {
-    handleLoadSample();
-    axios.post('/api/ats/detect-company', { company_name: companyName })
-      .then(res => setDetectedAts(res.data))
-      .catch(err => console.error("Initial ATS detect error", err));
+    api.health().then(setHealth).catch(() => setHealth(null));
+    api.meta().then(setMeta).catch(() => {});
   }, []);
 
-  // Fetch real Kaggle sample candidate from dataset
-  const handleLoadSample = async () => {
-    try {
-      const res = await axios.get('/api/resumes/sample');
-      if (res.data && res.data.length > 0) {
-        const sample = res.data[Math.floor(Math.random() * res.data.length)];
-        setResumeText(sample.raw_resume_text);
-        setCandidateFeatures({
-          years_experience: sample.years_experience,
-          skill_count: sample.skill_count,
-          college_tier: sample.college_tier,
-          employment_gap_months: sample.employment_gap_months,
-          has_internship: sample.has_internship,
-          gpa: sample.gpa,
-          project_count: sample.project_count,
-          graduation_year: sample.graduation_year,
-          has_referral: sample.has_referral,
-          demographic_proxy: sample.demographic_proxy
-        });
-        setAutoFillSource('kaggle_sample');
-      }
-    } catch (err) {
-      console.error("Failed to load sample Kaggle candidate", err);
-    }
+  const notify = useCallback((message, kind) => setToast({ message, kind }), []);
+
+  const onAnalyzed = (res) => {
+    setAnalysis(res);
+    setRoles((res.profile?.target_roles || []).slice(0, 3));
+    const city = cityFromLocation(res.profile?.location);
+    setFilters(f => ({ ...f, cities: city ? [city] : f.cities }));
+    setJobResults(null);
+    if (res.profile?.bias_features) setFeatures({ ...DEFAULT_FEATURES, ...res.profile.bias_features });
+    window.scrollTo({ top: 0 });
   };
 
-  // Switch to ATS Checker from Job Discovery card with auto-trigger single-click analysis
-  const handleSelectJobForATS = (job) => {
-    if (job) {
-      if (job.description) setJdText(job.description);
-      if (job.companyName) setCompanyName(job.companyName);
-      if (job.company) setCompanyName(job.company);
-    }
-    setAutoRunAtsCheck(true);
-    setActiveTab('ats_checker');
-  };
-
-  // Seamless Handoff from ATS Checker to Bias Auditor with Auto-Fill
-  const handleHandoffToAudit = (extractedFeatures) => {
-    if (extractedFeatures) {
-      setCandidateFeatures(prev => ({
-        ...prev,
-        years_experience: extractedFeatures.years_experience ?? prev.years_experience,
-        skill_count: extractedFeatures.skill_count ?? prev.skill_count,
-        college_tier: extractedFeatures.college_tier ?? prev.college_tier,
-        employment_gap_months: extractedFeatures.employment_gap_months ?? prev.employment_gap_months,
-        has_internship: extractedFeatures.has_internship ?? prev.has_internship,
-        gpa: extractedFeatures.gpa ?? prev.gpa,
-        project_count: extractedFeatures.project_count ?? prev.project_count,
-        graduation_year: extractedFeatures.graduation_year ?? prev.graduation_year,
-        has_referral: extractedFeatures.has_referral ?? prev.has_referral
-      }));
-      setAutoFillSource('your_resume');
-    }
-    setActiveTab('bias_auditor');
+  const reset = () => {
+    setAnalysis(null);
+    setJobResults(null);
+    setRoles([]);
+    setView('scan');
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onLoadSample={handleLoadSample}
-        groqApiKey={groqApiKey}
-        setGroqApiKey={setGroqApiKey}
-      />
-
-      <main style={{ flex: 1, maxWidth: '1280px', width: '100%', margin: '0 auto', padding: '24px' }}>
-        {activeTab === 'job_discovery' ? (
-          <JobDiscovery
-            onSelectJobForATS={handleSelectJobForATS}
-            onHandoffToAudit={handleHandoffToAudit}
-            groqApiKey={groqApiKey}
-          />
-        ) : activeTab === 'ats_checker' || activeTab === 'ats' ? (
-          <ATSChecker
-            resumeText={resumeText}
-            setResumeText={setResumeText}
-            jdText={jdText}
-            setJdText={setJdText}
-            careersUrl={careersUrl}
-            setCareersUrl={setCareersUrl}
-            companyName={companyName}
-            setCompanyName={setCompanyName}
-            detectedAts={detectedAts}
-            setDetectedAts={setDetectedAts}
-            parsedData={parsedData}
-            setParsedData={setParsedData}
-            matchData={matchData}
-            setMatchData={setMatchData}
-            groqApiKey={groqApiKey}
-            onHandoffToAudit={handleHandoffToAudit}
-            autoRunAtsCheck={autoRunAtsCheck}
-            setAutoRunAtsCheck={setAutoRunAtsCheck}
-          />
-        ) : (
-          <BiasAuditor
-            candidateFeatures={candidateFeatures}
-            setCandidateFeatures={setCandidateFeatures}
-            autoFillSource={autoFillSource}
-            groqApiKey={groqApiKey}
-          />
+    <>
+      <Nav view={view} setView={setView} health={health} />
+      <main>
+        {view === 'scan' && (
+          <ScanView analysis={analysis} onAnalyzed={onAnalyzed} onReset={reset} goJobs={() => setView('jobs')}
+            notify={notify} health={health} roles={roles} setRoles={setRoles} />
+        )}
+        {view === 'jobs' && (
+          <JobsView analysis={analysis} roles={roles} setRoles={setRoles} results={jobResults} setResults={setJobResults}
+            filters={filters} setFilters={setFilters} meta={meta} openCheck={setCheckJob} notify={notify} goScan={() => setView('scan')} />
+        )}
+        {view === 'company' && <CompanyView analysis={analysis} roles={roles} openCheck={setCheckJob} notify={notify} meta={meta} />}
+        {view === 'fairness' && (
+          <Suspense fallback={<div className="empty"><Spinner size={22} /></div>}>
+            <FairnessView features={features} setFeatures={setFeatures} fromResume={Boolean(analysis)} />
+          </Suspense>
         )}
       </main>
-
-      <footer style={{
-        borderTop: '1px solid var(--border-color)',
-        padding: '20px 24px',
-        textAlign: 'center',
-        fontSize: '0.78rem',
-        color: 'var(--text-muted)',
-        marginTop: '40px'
-      }}>
-        GlassBox ATS Reality-Checker & Real Kaggle Resume Bias Auditor — Powered by Two-Tier Company ATS Detection, Plain-Language Groq Summaries, SHAP, LIME, RandomForest, and Groq LLM API.
+      <footer className="footer">
+        <div className="container row wrap" style={{ gap: 14 }}>
+          <span>GlassBox simulates documented ATS behaviour. It isn't affiliated with any ATS vendor or employer.</span>
+          <div className="spacer" />
+          <span>Jobs are read live from public company career boards.</span>
+        </div>
       </footer>
-    </div>
+      {checkJob && <CheckDrawer job={checkJob} analysis={analysis} onClose={() => setCheckJob(null)} notify={notify} goScan={() => setView('scan')} />}
+      <Toast message={toast?.message} kind={toast?.kind} onClose={() => setToast(null)} />
+    </>
   );
 }

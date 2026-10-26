@@ -1,17 +1,18 @@
-import os
-import json
+"""
+Candidate profile extraction.
+
+An LLM reads the resume into structured fields; the skill lexicon and a
+date-range scanner then cross-check it, so skills and years of experience
+are traceable to the text even when the LLM is unavailable. Fields that
+can't be found are returned as None, never filled with plausible defaults.
+"""
 import re
 import datetime
-from typing import Dict, Any, Optional, List, Tuple
-from groq import Groq
-import google.generativeai as genai
-from dotenv import load_dotenv
+from typing import Any, Dict, List, Optional, Tuple
 
-load_dotenv()
+from core.llm import llm_json
+from matching.skills_lexicon import find_skills, canonicalize, skill_category
 
-# ---------------------------------------------------------------------------
-# Small numeric helpers
-# ---------------------------------------------------------------------------
 
 def safe_float(val: Any, default: Optional[float] = None) -> Optional[float]:
     if val is None:
@@ -24,573 +25,313 @@ def safe_float(val: Any, default: Optional[float] = None) -> Optional[float]:
     except Exception:
         return default
 
+
 def safe_int(val: Any, default: Optional[int] = None) -> Optional[int]:
     if val is None:
         return default
     try:
-        if isinstance(val, int):
-            return val
-        if isinstance(val, float):
+        if isinstance(val, (int, float)):
             return int(val)
         match = re.search(r"\b(\d{4})\b", str(val)) or re.search(r"(\d+)", str(val))
         return int(match.group(1)) if match else default
     except Exception:
         return default
 
+
 # ---------------------------------------------------------------------------
-# Optional Supabase Client initialization
+# Date-range experience calculation. Resumes rarely state "3 years of
+# experience"; they list ranges ("Jun 2023 - Present") the reader must sum.
 # ---------------------------------------------------------------------------
-
-supabase_client = None
-try:
-    from supabase import create_client
-    supabase_url = os.environ.get("SUPABASE_URL", "").strip()
-    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.environ.get("SUPABASE_ANON_KEY", "").strip()
-    if supabase_url and supabase_key:
-        supabase_client = create_client(supabase_url, supabase_key)
-except Exception as e:
-    print("Supabase client init notice:", e)
-
-
-# ===========================================================================
-# DATE-RANGE BASED EXPERIENCE CALCULATION
-# The single biggest cause of "experience not accounted for": resumes almost
-# never say "3 years of experience" in plain text. They list role date ranges
-# ("Jun 2023 - Aug 2023", "Jan 2024 - Present") and expect the reader to sum
-# them. Both the LLM prompt AND the offline heuristic now do that explicitly.
-# ===========================================================================
 
 _MONTHS = {
-    "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
-    "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
-    "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9,
-    "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12
+    "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3, "apr": 4, "april": 4, "may": 5,
+    "jun": 6, "june": 6, "jul": 7, "july": 7, "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
 }
+_MONTH_NAMES = "|".join(sorted(_MONTHS, key=len, reverse=True))
 
-_DATE_RANGE_PATTERN = re.compile(
-    r"""
-    (?P<start_month>[A-Za-z]{3,9})?\s*['’]?\s*(?P<start_year>\d{2,4})
-    \s*(?:-|–|—|to)\s*
-    (?P<end_token>Present|Current|Now|(?:[A-Za-z]{3,9})?\s*['’]?\s*\d{2,4})
-    """,
-    re.IGNORECASE | re.VERBOSE
+
+def _date_pattern(prefix: str) -> str:
+    return (rf"(?:\b(?P<{prefix}m>{_MONTH_NAMES})\.?,?\s*['’]?\s*|\b(?P<{prefix}n>0?[1-9]|1[0-2])\s*[/\-.]\s*)?"
+            rf"(?P<{prefix}y>(?:19|20)\d{{2}}|['’]\d{{2}})")
+
+
+_RANGE = re.compile(
+    _date_pattern("s") + r"\s*(?:-|–|—|to|till|until)\s*"
+    + r"(?:(?P<present>present|current|now|ongoing|date|today)|" + _date_pattern("e") + ")",
+    re.IGNORECASE,
 )
 
-def _normalize_year(y: str) -> Optional[int]:
-    y = y.strip()
+
+def _year(y: str) -> Optional[int]:
+    y = (y or "").strip("'’ ")
     if len(y) == 2:
-        yi = int(y)
-        return 2000 + yi if yi < 50 else 1900 + yi
-    if len(y) == 4:
-        return int(y)
-    return None
+        return 2000 + int(y)
+    return int(y) if len(y) == 4 else None
 
-def _month_lookup(name: Optional[str]) -> int:
-    if not name:
-        return 6  # assume mid-year if only a year is given, keeps duration estimates unbiased
-    return _MONTHS.get(name.strip(".").lower(), 6)
 
-def compute_experience_years_from_text(text: str, now: Optional[datetime.date] = None) -> Tuple[float, int]:
-    """
-    Scans the whole resume for date ranges (role/internship durations) and sums
-    them into a total years-of-experience figure. Overlapping ranges are merged
-    so a candidate with 3 concurrent part-time roles doesn't get 3x credit.
-    Returns (years_experience, ranges_found_count).
-    """
+def _month(name: Optional[str], num: Optional[str], default: int) -> int:
+    if name:
+        return _MONTHS.get(name.lower().rstrip("."), default)
+    if num:
+        return int(num)
+    return default
+
+
+def compute_experience_years(text: str, work_text: Optional[str] = None, now: Optional[datetime.date] = None) -> Tuple[float, int]:
+    """Sums date ranges (merging overlaps) found in the work/experience part of
+    the resume. Education ranges are excluded when a work section can be isolated."""
     now = now or datetime.date.today()
-    intervals: List[Tuple[int, int]] = []  # (start_month_index, end_month_index) since year 0
-
-    for m in _DATE_RANGE_PATTERN.finditer(text):
-        start_year = _normalize_year(m.group("start_year") or "")
-        if not start_year or start_year < 1990 or start_year > now.year + 1:
+    source = work_text if work_text else text
+    intervals = []
+    for m in _RANGE.finditer(source):
+        sy = _year(m.group("sy"))
+        if not sy or sy < 1980 or sy > now.year + 1:
             continue
-        start_month = _month_lookup(m.group("start_month"))
-
-        end_token = (m.group("end_token") or "").strip()
-        if re.match(r"present|current|now", end_token, re.IGNORECASE):
-            end_year, end_month = now.year, now.month
+        sm = _month(m.group("sm"), m.group("sn"), 1)
+        if m.group("present"):
+            ey, em = now.year, now.month
         else:
-            end_match = re.match(r"([A-Za-z]{3,9})?\s*['’]?\s*(\d{2,4})", end_token)
-            if not end_match:
+            ey = _year(m.group("ey"))
+            if not ey:
                 continue
-            end_year = _normalize_year(end_match.group(2) or "")
-            if not end_year:
-                continue
-            end_month = _month_lookup(end_match.group(1))
-
-        start_idx = start_year * 12 + start_month
-        end_idx = end_year * 12 + end_month
-        if end_idx < start_idx:
+            em = _month(m.group("em"), m.group("en"), 12 if not m.group("sm") and not m.group("sn") else 1)
+        start, end = sy * 12 + sm, ey * 12 + em
+        if end < start or end - start > 180:
             continue
-        # Discard implausibly long single spans (likely a false-positive match,
-        # e.g. two unrelated years on the same line) rather than let one bad
-        # regex hit dominate the total.
-        if end_idx - start_idx > 120:
-            continue
-        intervals.append((start_idx, end_idx))
-
+        intervals.append((start, end))
     if not intervals:
         return 0.0, 0
-
-    # Merge overlapping/adjacent intervals before summing
     intervals.sort()
     merged = [intervals[0]]
-    for start, end in intervals[1:]:
-        last_start, last_end = merged[-1]
-        if start <= last_end + 1:
-            merged[-1] = (last_start, max(last_end, end))
+    for s, e in intervals[1:]:
+        if s <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
         else:
-            merged.append((start, end))
-
-    total_months = sum(end - start for start, end in merged)
-    years = round(total_months / 12.0, 1)
-    return years, len(intervals)
+            merged.append((s, e))
+    months = sum(e - s for s, e in merged)
+    return round(months / 12.0, 1), len(intervals)
 
 
-# ===========================================================================
-# MAIN EXTRACTION ENTRYPOINT
-# ===========================================================================
-
-def extract_candidate_profile(raw_text: str, filename: str = "resume.pdf", api_key_override: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Extracts structured candidate profile from raw resume text using Groq/Gemini,
-    falling back to a rule-based extractor only if both LLM paths are unavailable
-    or fail. At every stage, fields that cannot be genuinely determined from the
-    resume text are left as None/unknown rather than filled with plausible-looking
-    fabricated values -- so the caller (and the UI) can tell the difference between
-    "the candidate doesn't have this" and "we failed to extract this."
-    """
-    clean_text = raw_text.strip()
-    if not clean_text:
-        return {
-            "error": "Empty resume text provided",
-            "explicit_fields": {},
-            "inferred_fields": {},
-            "consolidated_profile": {},
-            "extraction_warnings": ["No resume text was provided."]
-        }
-
-    override = (api_key_override or "").strip()
-    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
-
-    if override:
-        if override.startswith("AIza"):
-            gemini_key = override
-        elif override.startswith("gsk_") or not groq_key:
-            groq_key = override
-
-    today_str = datetime.date.today().strftime("%B %Y")
-
-    system_prompt = (
-        "You are an expert HR-tech Applicant Tracking System auditor and candidate profiler. "
-        "Analyze the ACTUAL resume text below and extract structured profile data. "
-        "Today's date is " + today_str + " -- use this to resolve 'Present'/'Current' end dates.\n\n"
-        "CRITICAL REQUIREMENTS:\n"
-        "1. You MUST strictly distinguish EXPLICIT facts present in the text from INFERRED estimations.\n"
-        "2. For 'years_experience': find EVERY role/internship/work entry with a date range "
-        "(e.g. 'Jun 2023 - Aug 2023', 'Jan 2024 - Present', '06/2022 - 08/2022'). Compute the duration "
-        "of each in months, merge overlapping ranges, sum the total, and convert to years "
-        "(one decimal place). If there are zero date ranges anywhere in the resume, return 0.0 -- "
-        "do NOT guess a plausible-sounding number.\n"
-        "3. For 'primary_role': prefer an explicitly stated headline/objective/target-role line if the "
-        "resume has one. Otherwise infer the role from the actual skills, project titles, and experience "
-        "entries present in THIS resume -- do not default to a generic title unrelated to the content.\n"
-        "4. For every other field: if the information is not present anywhere in the text, return null "
-        "(or an empty list for skill_list) rather than inventing a value.\n\n"
-        "Return ONLY a valid JSON object matching this schema:\n"
-        "{\n"
-        '  "explicit_fields": {\n'
-        '    "full_name": "exact candidate name if present, else null",\n'
-        '    "years_experience": float (see rule 2 above, 0.0 if no date ranges found),\n'
-        '    "experience_source": "date_ranges" | "explicit_statement" | "none_found",\n'
-        '    "skill_list": ["explicitly mentioned skills, technologies, and tools -- as many as are present"],\n'
-        '    "college_name": "exact university/college name if present, else null",\n'
-        '    "college_tier": "Tier 1" (ONLY if explicitly IIT, NIT, BITS, Stanford, MIT, CMU, Harvard, UC Berkeley, Ivy League) else "Tier 2/3" if any college is named, else null,\n'
-        '    "gpa": float or null if not stated,\n'
-        '    "graduation_year": integer (actual or expected), or null if not stated,\n'
-        '    "employment_gap_months": integer (explicit gaps you can identify between the END of one role and the START of the next), 0 if none identifiable,\n'
-        '    "has_internship": true only if an internship/apprenticeship is explicitly listed, else false,\n'
-        '    "project_count": integer count of distinct projects actually listed in the resume,\n'
-        '    "has_referral": false,\n'
-        '    "location": "city/country if stated, else null"\n'
-        "  },\n"
-        '  "inferred_fields": {\n'
-        '    "primary_role": "role inferred from THIS resume\'s actual content (see rule 3)",\n'
-        '    "seniority_level": "Entry Level" | "Mid Level" | "Senior",\n'
-        '    "top_domain": "best-fit domain based on the resume\'s actual skills/projects (e.g. Software Engineering, Data Science / ML, Cloud/DevOps, Product, Other)",\n'
-        '    "suggested_alternative_roles": ["2-4 roles genuinely consistent with this candidate\'s actual skills and projects"]\n'
-        "  }\n"
-        "}\n"
-        "Do NOT hallucinate or fabricate facts. Every explicit_fields value must be traceable to text "
-        "actually present in the resume below."
-    )
-
-    explicit, inferred = None, None
-    extraction_warnings: List[str] = []
-
-    # --- Priority 1: Groq API (user key preferred) ---
-    if groq_key:
-        try:
-            client = Groq(api_key=groq_key)
-            response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"RAW CANDIDATE RESUME TEXT:\n{clean_text[:6000]}"}
-                ],
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
-            res_content = response.choices[0].message.content
-            extracted_json = json.loads((res_content or "").strip())
-            explicit = extracted_json.get("explicit_fields", {})
-            inferred = extracted_json.get("inferred_fields", {})
-        except Exception as e:
-            print("Groq candidate profile extraction failed:", e)
-            extraction_warnings.append("Groq extraction failed; tried next available method.")
-
-    # --- Priority 2: Gemini API ---
-    if not explicit and gemini_key:
-        try:
-            genai.configure(api_key=gemini_key)  # type: ignore
-            model = genai.GenerativeModel("gemini-1.5-flash")  # type: ignore
-            response = model.generate_content(
-                f"{system_prompt}\n\nRAW CANDIDATE RESUME TEXT:\n{clean_text[:6000]}"
-            )
-            raw_res = (response.text or "").strip()
-            json_match = re.search(r"\{.*\}", raw_res, re.DOTALL)
-            if json_match:
-                extracted_json = json.loads(json_match.group(0))
-                explicit = extracted_json.get("explicit_fields", {})
-                inferred = extracted_json.get("inferred_fields", {})
-        except Exception as e:
-            print("Gemini candidate profile extraction failed:", e)
-            extraction_warnings.append("Gemini extraction failed; falling back to rule-based extraction.")
-
-    # --- Priority 3: Rule-based extraction (reads the actual resume text; no fixed presets) ---
-    used_heuristic = False
-    if not explicit:
-        explicit, inferred = _heuristic_extraction(clean_text)
-        used_heuristic = True
-        extraction_warnings.append(
-            "No LLM API key was available/working, so fields were extracted with rule-based text "
-            "scanning. Accuracy is lower than LLM extraction, especially for role inference."
-        )
-
-    explicit = explicit or {}
-    inferred = inferred or {}
-
-    # Cross-check: if the LLM (or heuristic) reported 0 date-range-derived experience
-    # but never actually looked, or reported an experience_source we can double check,
-    # run our own independent date-range scan and prefer it when it found more signal.
-    computed_years, ranges_found = compute_experience_years_from_text(clean_text)
-    llm_years = safe_float(explicit.get("years_experience"))
-    if llm_years is None or (ranges_found > 0 and (llm_years == 0.0 or llm_years is None)):
-        if ranges_found > 0:
-            explicit["years_experience"] = computed_years
-            explicit.setdefault("experience_source", "date_ranges")
-
-    # Track which consolidated fields could not be genuinely determined, so the
-    # frontend can show "not extracted" instead of a silently-wrong number.
-    unresolved_fields: List[str] = []
-
-    def resolve(key: str, transform=lambda v: v, min_confidence_default=None):
-        raw_val = explicit.get(key)
-        if raw_val is None or raw_val == "":
-            unresolved_fields.append(key)
-            return min_confidence_default
-        try:
-            return transform(raw_val)
-        except Exception:
-            unresolved_fields.append(key)
-            return min_confidence_default
-
-    consolidated = {
-        "full_name": resolve("full_name", str, None),
-        "primary_role": inferred.get("primary_role") or None,
-        "years_experience": safe_float(explicit.get("years_experience"), None),
-        "experience_source": explicit.get("experience_source", "none_found"),
-        "skill_count": len(explicit.get("skill_list") or []) if isinstance(explicit.get("skill_list"), list) else 0,
-        "skill_list": explicit.get("skill_list") if isinstance(explicit.get("skill_list"), list) else [],
-        "college_name": resolve("college_name", str, None),
-        "college_tier": explicit.get("college_tier") or None,
-        "employment_gap_months": safe_int(explicit.get("employment_gap_months"), 0),
-        "has_internship": bool(explicit.get("has_internship")) if explicit.get("has_internship") is not None else False,
-        "gpa": safe_float(explicit.get("gpa"), None),
-        "project_count": safe_int(explicit.get("project_count"), 0),
-        "graduation_year": safe_int(explicit.get("graduation_year"), None),
-        "has_referral": bool(explicit.get("has_referral") or False),
-        "demographic_proxy": "Group B",
-        "location": resolve("location", str, None),
-    }
-
-    if not consolidated["primary_role"]:
-        unresolved_fields.append("primary_role")
-    if consolidated["years_experience"] is None:
-        consolidated["years_experience"] = 0.0
-        if "years_experience" not in unresolved_fields:
-            unresolved_fields.append("years_experience")
-    if consolidated["gpa"] is None:
-        unresolved_fields.append("gpa")
-
-    if unresolved_fields:
-        extraction_warnings.append(
-            "Could not confidently extract from the resume text: " + ", ".join(sorted(set(unresolved_fields))) +
-            ". These are shown as unknown rather than guessed."
-        )
-
-    result = {
-        "explicit_fields": explicit,
-        "inferred_fields": inferred,
-        "consolidated_profile": consolidated,
-        "raw_text_length": len(clean_text),
-        "resume_id": None,
-        "profile_id": None,
-        "extraction_method": "heuristic" if used_heuristic else ("groq" if groq_key and explicit else "gemini"),
-        "extraction_warnings": extraction_warnings,
-        "unresolved_fields": sorted(set(unresolved_fields))
-    }
-
-    # Save to Supabase DB if client is active
-    if supabase_client is not None:
-        try:
-            res_db = supabase_client.table("resumes").insert({
-                "filename": filename,
-                "file_type": filename.split(".")[-1] if "." in filename else "text",
-                "raw_text": clean_text
-            }).select().execute()
-
-            db_data: Any = res_db.data
-            if db_data and len(db_data) > 0:
-                resume_id = db_data[0].get("id")
-                result["resume_id"] = resume_id
-
-                prof_db = supabase_client.table("candidate_profiles").insert({
-                    "resume_id": resume_id,
-                    "full_name": consolidated["full_name"],
-                    "primary_role": consolidated["primary_role"],
-                    "years_experience": consolidated["years_experience"],
-                    "skill_list": consolidated["skill_list"],
-                    "college_name": consolidated["college_name"],
-                    "college_tier": consolidated["college_tier"],
-                    "gpa": consolidated["gpa"],
-                    "graduation_year": consolidated["graduation_year"],
-                    "employment_gap_months": consolidated["employment_gap_months"],
-                    "has_internship": consolidated["has_internship"],
-                    "project_count": consolidated["project_count"],
-                    "has_referral": consolidated["has_referral"],
-                    "location": consolidated["location"],
-                    "explicit_data": explicit,
-                    "inferred_data": inferred
-                }).select().execute()
-
-                prof_data: Any = prof_db.data
-                if prof_data and len(prof_data) > 0:
-                    result["profile_id"] = prof_data[0].get("id")
-        except Exception as err:
-            print("Supabase profile save notice:", err)
-
-    return result
+def _work_section(text: str) -> Optional[str]:
+    m = re.search(r"(?im)^\s*(work experience|professional experience|experience|employment history|work history|internships?)\s*:?\s*$", text)
+    if not m:
+        return None
+    after = text[m.end():]
+    nxt = re.search(r"(?im)^\s*(education|academic\w*|projects?|skills|technical skills|certifications?|achievements|awards|"
+                    r"positions of responsibility|extra[- ]?curricular\w*|publications|languages|interests)\s*:?\s*$", after)
+    return after[: nxt.start()] if nxt else after
 
 
-# ===========================================================================
-# RULE-BASED FALLBACK (only used if both Groq and Gemini are unavailable/fail)
-# Reads the actual resume text for every field. Anything it can't genuinely
-# find is left as None/empty rather than filled with a fixed preset value.
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Rule-based fallback pieces
+# ---------------------------------------------------------------------------
 
-_TIER1_KEYWORDS = [
-    "iit", "indian institute of technology", "nit", "national institute of technology",
-    "bits pilani", "birla institute", "stanford", "mit", "massachusetts institute of technology",
-    "cmu", "carnegie mellon", "harvard", "uc berkeley", "berkeley", "princeton", "yale",
-    "columbia university", "cornell", "caltech"
+_TIER1 = ["iit", "indian institute of technology", "nit ", "national institute of technology", "bits pilani", "birla institute",
+          "iiit", "iim", "indian institute of management", "iisc", "indian institute of science", "dtu", "delhi technological",
+          "nsut", "stanford", "massachusetts institute of technology", "carnegie mellon", "harvard", "berkeley", "oxford", "cambridge"]
+_DEGREES = [
+    ("PhD", r"\bph\.?\s?d\b|doctorate"),
+    ("MBA", r"\bmba\b|\bpgdm\b|post graduate diploma in management"),
+    ("M.Tech / M.E. / M.S.", r"\bm\.?\s?tech\b|\bm\.?e\.?\b(?= |,)|\bm\.?s\.?\b(?= in)|master of (?:technology|engineering|science)"),
+    ("MCA", r"\bmca\b|master of computer applications"),
+    ("M.Sc", r"\bm\.?sc\b"),
+    ("B.Tech / B.E.", r"\bb\.?\s?tech\b|\bb\.?e\.?\b(?= |,|\()|bachelor of (?:technology|engineering)"),
+    ("BCA", r"\bbca\b|bachelor of computer applications"),
+    ("B.Sc", r"\bb\.?sc\b|bachelor of science"),
+    ("B.Com", r"\bb\.?com\b|bachelor of commerce"),
+    ("BBA", r"\bbba\b|\bbms\b|bachelor of business"),
+    ("B.A.", r"\bb\.?a\.?\b(?= in| \(|,)|bachelor of arts"),
+    ("Diploma", r"\bdiploma\b"),
 ]
-
-# Broad, domain-spanning role vocabulary -- covers SDE/AI-ML/Data as well as
-# Product, since the previous list was skewed almost entirely toward PM roles
-# and would silently mis-tag a CS/AI-ML resume.
-_ROLE_VOCABULARY = [
-    "Machine Learning Engineer", "ML Engineer", "AI Engineer", "Data Scientist",
-    "Data Analyst", "Data Engineer", "AI/ML Engineer", "Deep Learning Engineer",
-    "NLP Engineer", "Computer Vision Engineer", "Research Engineer",
-    "Software Development Engineer", "SDE", "Software Engineer", "Backend Developer",
-    "Backend Engineer", "Frontend Engineer", "Frontend Developer", "Full Stack Engineer",
-    "Full Stack Developer", "DevOps Engineer", "Cloud Engineer", "Site Reliability Engineer",
-    "Mobile App Developer", "Android Developer", "iOS Developer",
-    "Product Manager", "Associate Product Manager", "Product Analyst", "AI Product Manager",
-    "UI/UX Designer", "Product Owner", "Quality Assurance Engineer", "QA Engineer",
-    "Security Engineer", "Embedded Systems Engineer"
-]
-
-_SKILLS_VOCABULARY = [
-    # Languages
-    "Python", "Java", "C++", "C", "JavaScript", "TypeScript", "Go", "Rust", "SQL", "R", "Scala",
-    # AI/ML/Data
-    "Machine Learning", "Deep Learning", "PyTorch", "TensorFlow", "Keras", "Scikit-learn",
-    "NLP", "Computer Vision", "OpenCV", "Pandas", "NumPy", "LLMs", "RAG", "Prompt Engineering",
-    "Hugging Face", "OpenAI API", "FAISS", "XGBoost", "Data Analysis", "ETL Automation",
-    "Tableau", "Power BI", "Matplotlib", "Seaborn",
-    # Web/Backend
-    "React", "Next.js", "Node.js", "Express", "FastAPI", "Django", "Flask", "REST APIs",
-    "GraphQL", "Spring Boot", "PostgreSQL", "MySQL", "MongoDB", "Redis",
-    # Infra/DevOps
-    "Docker", "Kubernetes", "AWS", "Azure", "GCP", "CI/CD", "Git", "GitHub Actions", "Linux",
-    "Terraform", "Nginx",
-    # CS Fundamentals
-    "Data Structures", "Algorithms", "DSA", "System Design", "OOP", "Distributed Systems",
-    # Product
-    "Product Management", "Product Discovery", "PRDs", "MVP Scoping", "RICE Prioritization",
-    "Roadmapping", "A/B Experimentation", "User Research", "KPI Design"
-]
-
-_CITY_VOCABULARY = [
-    "Bengaluru", "Bangalore", "Mumbai", "Delhi", "Hyderabad", "Pune", "Chennai", "Kolkata",
-    "Ahmedabad", "Noida", "Gurugram", "Gurgaon", "San Francisco", "New York", "Seattle",
-    "London", "Toronto", "Remote"
-]
+_CITIES = ["Bengaluru", "Bangalore", "Mumbai", "New Delhi", "Delhi", "Hyderabad", "Pune", "Chennai", "Kolkata", "Ahmedabad", "Noida",
+           "Gurugram", "Gurgaon", "Jaipur", "Kochi", "Indore", "Chandigarh", "Coimbatore", "Lucknow", "Bhopal", "Nagpur", "Mysuru",
+           "Visakhapatnam", "Thiruvananthapuram", "Bhubaneswar", "Vadodara", "Surat"]
 
 
-def _heuristic_extraction(text: str) -> tuple:
-    """
-    Rule-based candidate profile extractor. Used only as a last resort when no
-    LLM key is available or both LLM calls fail. Every field is derived from
-    the actual resume text; fields with no textual evidence are returned as
-    None/empty so the caller can distinguish "not found" from a real value.
-    """
+def detect_degree(text: str) -> Optional[str]:
+    for label, pat in _DEGREES:
+        if re.search(pat, text, re.IGNORECASE):
+            return label
+    return None
+
+
+def _rules_profile(text: str) -> Dict[str, Any]:
     lines = [l.strip() for l in text.split("\n") if l.strip()]
-
-    # 1. Full name from the header, excluding contact-info-looking lines
-    full_name = None
-    for l in lines[:4]:
-        if not re.search(r"@|http|\+91|\d{7,}|linkedin|github", l, re.IGNORECASE):
-            cleaned = re.sub(r"[^a-zA-Z\s]", "", l).strip()
-            cleaned = re.sub(
-                r"\b(" + "|".join(_CITY_VOCABULARY) + r"|India|USA)\b", "", cleaned, flags=re.IGNORECASE
-            ).strip()
-            if cleaned and 1 < len(cleaned.split()) <= 4:
-                full_name = cleaned.title()
-                break
-
-    # 2. Explicit stated target role/objective line, if present
-    primary_role = None
-    obj_match = re.search(
-        r"(?:career\s+objective|objective|target\s+role|applying\s+for|seeking)\s*[:\-]\s*([^\n]+)",
-        text, re.IGNORECASE
-    )
-    if obj_match:
-        obj_line = obj_match.group(1).strip()
-        for r in _ROLE_VOCABULARY:
-            if re.search(r"\b" + re.escape(r) + r"\b", obj_line, re.IGNORECASE):
-                primary_role = r
-                break
-
-    # 3. Otherwise, count role-keyword frequency across the whole document
-    detected_roles: List[str] = []
-    if not primary_role:
-        role_counts = {}
-        for r in _ROLE_VOCABULARY:
-            hits = len(re.findall(r"\b" + re.escape(r) + r"\b", text, re.IGNORECASE))
-            if hits > 0:
-                role_counts[r] = hits
-        detected_roles = sorted(role_counts, key=lambda r: role_counts[r], reverse=True)
-        primary_role = detected_roles[0] if detected_roles else None
-    else:
-        detected_roles = [primary_role]
-
-    suggested_roles = [r for r in detected_roles if r != primary_role][:4]
-
-    # 4. Skills actually present in the text (broad, domain-spanning vocabulary)
-    extracted_skills = []
-    for s in _SKILLS_VOCABULARY:
-        if re.search(r"(?<![A-Za-z0-9])" + re.escape(s) + r"(?![A-Za-z0-9])", text, re.IGNORECASE):
-            extracted_skills.append(s)
-
-    # 5. Location -- only if a known city actually appears in the text
-    loc_match = re.search(r"\b(" + "|".join(_CITY_VOCABULARY) + r")\b", text, re.IGNORECASE)
-    location = loc_match.group(1).title() if loc_match else None
-
-    # 6. College name -- search line-by-line for a real institution keyword,
-    #    rather than defaulting to any fixed institution name. Matching per-line
-    #    (not across the whole text) avoids greedily spanning unrelated
-    #    newline-separated content that happens to precede the keyword.
-    college_name = None
-    for l in lines:
-        inst_match = re.search(
-            r"([A-Z][A-Za-z&,.\-\s]{2,80}?(?:Institute of Technology|University|College|Polytechnic))",
-            l
-        )
-        if inst_match:
-            college_name = inst_match.group(1).strip(" ,.-")
+    name = None
+    for l in lines[:5]:
+        if re.search(r"@|http|www\.|\d{5,}|linkedin|github|resume|curriculum", l, re.IGNORECASE):
+            continue
+        cleaned = re.sub(r"[^A-Za-z .]", " ", l).strip()
+        if 1 < len(cleaned.split()) <= 4 and len(cleaned) < 40:
+            name = cleaned.title() if cleaned.isupper() else cleaned
             break
-    college_tier = None
-    if college_name:
-        college_tier = "Tier 1" if any(k in college_name.lower() for k in _TIER1_KEYWORDS) else "Tier 2/3"
-    elif any(k in text.lower() for k in _TIER1_KEYWORDS):
-        college_tier = "Tier 1"
+    loc = next((c for c in _CITIES if re.search(r"\b" + c + r"\b", text)), None)
+    college = None
+    for l in lines:
+        m = re.search(r"([A-Z][A-Za-z&,.\-\s]{2,80}?(?:Institute of Technology|Institute|University|College|Vidyalaya|IIT\s?\w*|NIT\s?\w*))", l)
+        if m:
+            college = m.group(1).strip(" ,.-")
+            break
+    grad = re.search(r"(?:expected|graduat\w*|batch|class of)\D{0,15}((?:19|20)\d{2})", text, re.IGNORECASE)
+    gpa = re.search(r"\b(?:c?gpa|cpi|sgpa)\s*[:\-]?\s*(\d{1,2}(?:\.\d{1,2})?)\s*(?:/\s*(10|4)(?:\.0)?)?", text, re.IGNORECASE)
+    return {
+        "name": name, "location": loc, "college": college,
+        "graduation_year": int(grad.group(1)) if grad else None,
+        "gpa": float(gpa.group(1)) if gpa else None,
+        "gpa_scale": float(gpa.group(2)) if gpa and gpa.group(2) else (10.0 if gpa and float(gpa.group(1)) > 4.0 else (4.0 if gpa else None)),
+    }
 
-    # 7. GPA -- only if explicitly stated
-    gpa_match = re.search(r"\b(?:gpa|cgpa)\s*[:\-]?\s*([0-9]\.[0-9]{1,2})\s*(?:/\s*(?:4|10))?\b", text, re.IGNORECASE)
-    gpa_val = safe_float(gpa_match.group(1)) if gpa_match else None
 
-    # 8. Graduation year -- explicit "Expected 20XX" / plain 4-digit year near "graduat"
-    grad_match = (
-        re.search(r"(?:expected|graduat\w*)\D{0,15}(20[1-3]\d)", text, re.IGNORECASE) or
-        re.search(r"\b(201[5-9]|202[0-9]|203[0-5])\b", text)
+_ROLE_HINTS = [
+    ("Machine Learning Engineer", ["Machine Learning", "Deep Learning", "PyTorch", "TensorFlow", "MLOps"]),
+    ("Data Scientist", ["Machine Learning", "Statistics", "Pandas", "Scikit-learn"]),
+    ("Data Analyst", ["SQL", "Excel", "Power BI", "Tableau", "Data Analysis"]),
+    ("Data Engineer", ["Spark", "Airflow", "ETL", "Kafka", "Data Warehousing"]),
+    ("Frontend Engineer", ["React", "JavaScript", "TypeScript", "CSS", "Next.js"]),
+    ("Backend Engineer", ["Node.js", "Spring Boot", "Django", "Microservices", "REST APIs", "PostgreSQL"]),
+    ("Software Engineer", ["Data Structures & Algorithms", "Java", "Python", "C++", "System Design", "Git"]),
+    ("DevOps Engineer", ["Docker", "Kubernetes", "Terraform", "CI/CD", "AWS"]),
+    ("Product Manager", ["Product Management", "Product Roadmap", "PRDs", "User Research", "Product Analytics"]),
+    ("UI/UX Designer", ["Figma", "UX Design", "UI Design"]),
+    ("QA Engineer", ["Test Automation", "Manual Testing", "API Testing"]),
+    ("Security Analyst", ["Cybersecurity", "Penetration Testing", "SIEM", "Network Security"]),
+    ("Digital Marketing Specialist", ["Digital Marketing", "SEO", "Content Marketing", "Marketing Analytics"]),
+    ("Financial Analyst", ["Financial Modeling", "Accounting", "Excel"]),
+    ("Business Analyst", ["Business Analysis", "SQL", "Excel", "Stakeholder Management"]),
+]
+
+
+def _guess_roles(skills: List[str]) -> List[str]:
+    s = set(skills)
+    scored = sorted(((sum(1 for k in kws if k in s) / len(kws), role) for role, kws in _ROLE_HINTS), reverse=True)
+    return [role for score, role in scored if score >= 0.34][:4]
+
+
+def _seniority(years: float) -> str:
+    if years < 1:
+        return "Fresher / Entry level"
+    if years < 3:
+        return "Junior (1–3 yrs)"
+    if years < 6:
+        return "Mid level (3–6 yrs)"
+    if years < 10:
+        return "Senior (6–10 yrs)"
+    return "Lead / Principal (10+ yrs)"
+
+
+SYSTEM_PROMPT = (
+    "You are an expert resume parser used by an ATS-audit tool for job seekers in India. Read the resume and return ONLY JSON:\n"
+    "{\n"
+    '  "name": string|null,\n'
+    '  "headline": "the role this person is targeting or currently doing, inferred from THIS resume",\n'
+    '  "target_roles": ["3-5 realistic job titles this person should search for in India, most relevant first"],\n'
+    '  "location": "city if stated, else null",\n'
+    '  "education": {"degree": string|null, "field": string|null, "college": string|null, "graduation_year": int|null, "gpa": number|null, "gpa_scale": number|null},\n'
+    '  "experience": [{"title": string, "company": string, "start": "Mon YYYY", "end": "Mon YYYY or Present", "is_internship": bool}],\n'
+    '  "years_experience": number (sum of non-overlapping professional and internship durations, 0 if none),\n'
+    '  "skills": ["every concrete skill, tool, language, framework and methodology explicitly in the resume"],\n'
+    '  "domain": "e.g. Software Engineering, Data / AI, Product, Design, Finance, Marketing, Sales, Operations, HR, Core Engineering",\n'
+    '  "summary": "one sentence, third person, what makes this candidate distinctive"\n'
+    "}\n"
+    "Never invent facts: every value must be traceable to the resume. Use null when something is absent."
+)
+
+
+def extract_profile(text: str, layout_audit: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    text = (text or "").strip()
+    warnings: List[str] = []
+    if not text:
+        return {"error": "Empty resume text", "warnings": ["No text could be read from the resume."]}
+
+    today = datetime.date.today().strftime("%B %Y")
+    llm = llm_json(SYSTEM_PROMPT, f"Today is {today}.\n\nRESUME:\n{text[:12000]}", max_tokens=2500, timeout=60)
+    rules = _rules_profile(text)
+
+    lex = find_skills(text)
+    skill_names = list(lex)
+    if llm:
+        for s in llm.get("skills") or []:
+            if isinstance(s, str) and s.strip():
+                c = canonicalize(s.strip())
+                if c not in lex and len(c) <= 40:
+                    lex[c] = 1
+                    skill_names.append(c)
+    skills = sorted(
+        ({"name": s, "category": skill_category(s) if skill_category(s) != "Other" else "Other", "mentions": lex[s]} for s in skill_names),
+        key=lambda s: (-s["mentions"], s["name"]),
     )
-    grad_year = int(grad_match.group(1)) if grad_match else None
 
-    # 9. Experience: prefer explicit "X years" phrasing; otherwise sum real date ranges
-    exp_match = re.search(r"(\d+(\.\d+)?)\s*\+?\s*years?\s+(?:of\s+)?experience", text, re.IGNORECASE)
-    if exp_match:
-        years_exp = float(exp_match.group(1))
-        experience_source = "explicit_statement"
+    work = _work_section(text)
+    computed_years, ranges = compute_experience_years(text, work)
+    llm_years = safe_float((llm or {}).get("years_experience"))
+    if llm_years is not None and (ranges == 0 or abs(llm_years - computed_years) <= 1.5):
+        years, source = llm_years, "ai_reviewed_dates"
+    elif ranges:
+        years, source = computed_years, "date_ranges"
     else:
-        years_exp, ranges_found = compute_experience_years_from_text(text)
-        experience_source = "date_ranges" if ranges_found > 0 else "none_found"
+        years, source = 0.0, "none_found"
+        warnings.append("No employment date ranges were found, so experience is counted as 0 years.")
 
-    # 10. Internship -- only if the word actually appears
-    has_internship = bool(re.search(r"\bintern(ship)?\b", text, re.IGNORECASE))
+    edu = (llm or {}).get("education") or {}
+    roles = [r for r in ((llm or {}).get("target_roles") or []) if isinstance(r, str) and r.strip()]
+    headline = (llm or {}).get("headline")
+    if not roles:
+        roles = _guess_roles([s["name"] for s in skills])
+        headline = headline or (roles[0] if roles else None)
+    if headline and headline not in roles:
+        roles.insert(0, headline)
+    if not llm:
+        warnings.append("AI extraction was unavailable, so a rule-based reader was used. Role suggestions are less precise.")
 
-    # 11. Project count -- count "Projects" section entries by looking for a
-    #     Projects heading and counting subsequent bullet/heading lines until
-    #     the next all-caps section header.
-    project_count = 0
-    proj_section = re.search(r"(?im)^\s*projects?\s*$", text)
-    if proj_section:
-        after = text[proj_section.end():]
-        next_section = re.search(
-            r"(?im)^\s*(experience|education|skills|certifications|achievements|extracurricular)\s*$", after
-        )
-        section_text = after[:next_section.start()] if next_section else after[:1500]
-        project_count = len(re.findall(r"(?m)^\s*[•\-\*]\s+\S", section_text)) or len(
-            re.findall(r"(?m)^[A-Z][A-Za-z0-9 &\-]{3,60}$", section_text)
-        )
+    college = edu.get("college") or rules["college"]
+    college_tier = None
+    if college:
+        college_tier = "Tier 1" if any(k in (college.lower() + " ") for k in _TIER1) else "Tier 2/3"
 
-    explicit = {
-        "full_name": full_name,
-        "years_experience": years_exp,
-        "experience_source": experience_source,
-        "skill_list": extracted_skills,
-        "college_name": college_name,
-        "college_tier": college_tier,
-        "gpa": gpa_val,
-        "graduation_year": grad_year,
+    profile = {
+        "name": (llm or {}).get("name") or rules["name"],
+        "headline": headline,
+        "target_roles": roles[:5],
+        "location": (llm or {}).get("location") or rules["location"],
+        "years_experience": round(years, 1),
+        "experience_source": source,
+        "seniority": _seniority(years),
+        "experience": [e for e in ((llm or {}).get("experience") or []) if isinstance(e, dict)][:12],
+        "education": {
+            "degree": edu.get("degree") or detect_degree(text),
+            "field": edu.get("field"),
+            "college": college,
+            "college_tier": college_tier,
+            "graduation_year": safe_int(edu.get("graduation_year")) or rules["graduation_year"],
+            "gpa": safe_float(edu.get("gpa")) or rules["gpa"],
+            "gpa_scale": safe_float(edu.get("gpa_scale")) or rules["gpa_scale"],
+        },
+        "skills": skills,
+        "domain": (llm or {}).get("domain"),
+        "summary": (llm or {}).get("summary"),
+        "method": "ai" if llm else "rules",
+        "warnings": warnings,
+    }
+    profile["bias_features"] = bias_features(profile, layout_audit or {})
+    return profile
+
+
+def bias_features(profile: Dict[str, Any], layout_audit: Dict[str, Any]) -> Dict[str, Any]:
+    """Maps the profile onto the feature vector used by the Fairness Lab's audited model."""
+    edu = profile.get("education") or {}
+    gpa = edu.get("gpa")
+    if gpa and (edu.get("gpa_scale") or 10) > 4.5:
+        gpa = round(gpa / 10 * 4, 2)
+    exp = profile.get("experience") or []
+    return {
+        "years_experience": profile.get("years_experience") or 0.0,
+        "skill_count": len([s for s in profile.get("skills", []) if s["category"] != "Soft Skills"]),
+        "college_tier": edu.get("college_tier") or "Tier 2/3",
         "employment_gap_months": 0,
-        "has_internship": has_internship,
-        "project_count": project_count,
+        "has_internship": any(e.get("is_internship") for e in exp) or bool(re.search(r"intern", " ".join(e.get("title", "") for e in exp), re.IGNORECASE)),
+        "gpa": gpa if gpa else 3.0,
+        "project_count": max(1, min(10, layout_audit.get("bullets", 0) // 4)) if layout_audit else 3,
+        "graduation_year": edu.get("graduation_year") or datetime.date.today().year,
         "has_referral": False,
-        "location": location
     }
-    inferred = {
-        "primary_role": primary_role,
-        "seniority_level": "Entry Level" if years_exp < 2 else ("Mid Level" if years_exp < 5 else "Senior"),
-        "top_domain": (
-            "Data Science / ML" if primary_role and re.search(r"machine learning|ai|data|nlp|vision", primary_role, re.IGNORECASE)
-            else "Product Management" if primary_role and "product" in primary_role.lower()
-            else "Software Engineering" if primary_role
-            else None
-        ),
-        "suggested_alternative_roles": suggested_roles
-    }
-    return explicit, inferred

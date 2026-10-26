@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Scale, BarChart3, AlertCircle, CheckCircle2, ShieldAlert, Sparkles, TrendingUp, ChevronDown, ChevronUp, Info, UserCheck, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, CartesianGrid } from 'recharts';
-import axios from 'axios';
+import axios from '../api';
 
-export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, autoFillSource, groqApiKey }) {
+export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, autoFillSource }) {
   const [auditResult, setAuditResult] = useState(null);
   const [fairnessResult, setFairnessResult] = useState(null);
   const [trainingStats, setTrainingStats] = useState(null);
@@ -18,7 +18,7 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
     fetchFairness();
     fetchStats();
     runAudit(candidateFeatures);
-  }, [candidateFeatures, groqApiKey, selectedIceFeature, useMitigated]);
+  }, [candidateFeatures, selectedIceFeature, useMitigated]);
 
   const fetchFairness = async () => {
     try {
@@ -46,8 +46,7 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
       const res = await axios.post('/api/model/predict-explain', {
         ...features,
         ice_feature: selectedIceFeature,
-        use_mitigated: useMitigated,
-        groq_api_key: groqApiKey
+        use_mitigated: useMitigated
       });
       setAuditResult(res.data);
     } catch (err) {
@@ -140,9 +139,9 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
         }}>
           <UserCheck size={16} />
           {autoFillSource === 'your_resume' ? (
-            <span><strong>Auto-filled from your uploaded resume</strong> — adjust any slider below to explore interactive what-if scenarios.</span>
+            <span><strong>Auto-filled from your scanned resume.</strong> Adjust any slider to explore what-if scenarios.</span>
           ) : (
-            <span><strong>Auto-filled from a Kaggle benchmark candidate</strong> — adjust sliders to explore scenarios or upload your resume in Dashboard 1.</span>
+            <span><strong>Auto-filled from a Kaggle benchmark candidate</strong>. Adjust the sliders to explore scenarios, or scan your resume in Resume X-ray.</span>
           )}
         </div>
       )}

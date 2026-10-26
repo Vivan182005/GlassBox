@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import shap
 from lime import lime_tabular
-from groq import Groq
+from core.llm import llm_text
 from bias_model.model_trainer import trainer_instance, FEATURE_NAMES
 
 class ExplainabilityEngine:
@@ -194,38 +194,24 @@ class ExplainabilityEngine:
         # Counterfactual from ICE
         gap_months = feat_dict.get("employment_gap_months", 0)
         
-        api_key = (api_key_override or os.environ.get("GROQ_API_KEY", "")).strip()
-        if api_key:
-            try:
-                client = Groq(api_key=api_key)
-                system_prompt = (
-                    "You are an expert career auditor writing a candidate decision summary. "
-                    "Explain in 2-3 plain sentences why this candidate was accepted/rejected. "
-                    "Name the single biggest factor first. "
-                    "STRICT RULES: Absolutely ZERO technical jargon. Never use the words SHAP, LIME, logit, feature, coefficient, or probability. "
-                    "Write like you are explaining it directly to the candidate in warm, professional, encouraging words. "
-                    "Include a helpful 'if X were different' counterfactual sentence if rejected."
-                )
-                user_prompt = (
-                    f"Decision: {decision} ({confidence}% confidence)\n"
-                    f"Candidate Profile: {feat_dict.get('years_experience')} years experience, {feat_dict.get('skill_count')} skills, "
-                    f"GPA {feat_dict.get('gpa')}, {feat_dict.get('employment_gap_months')} month gap, {feat_dict.get('college_tier')} university.\n"
-                    f"Primary Influencing Factor: {primary['display_name']} ({primary['impact']} impact).\n"
-                    f"Top Factors: {[f['display_name'] for f in top_factors]}"
-                )
-                response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.3,
-                    max_tokens=150
-                )
-                res_content = response.choices[0].message.content
-                return (res_content or "").strip()
-            except Exception as e:
-                print("Groq plain explanation generation failed:", e)
+        system_prompt = (
+            "You are an expert career auditor writing a candidate decision summary. "
+            "Explain in 2-3 plain sentences why this candidate was accepted/rejected. "
+            "Name the single biggest factor first. "
+            "STRICT RULES: Absolutely ZERO technical jargon. Never use the words SHAP, LIME, logit, feature, coefficient, or probability. "
+            "Write like you are explaining it directly to the candidate in warm, professional, encouraging words. "
+            "Include a helpful 'if X were different' counterfactual sentence if rejected."
+        )
+        user_prompt = (
+            f"Decision: {decision} ({confidence}% confidence)\n"
+            f"Candidate Profile: {feat_dict.get('years_experience')} years experience, {feat_dict.get('skill_count')} skills, "
+            f"GPA {feat_dict.get('gpa')}, {feat_dict.get('employment_gap_months')} month gap, {feat_dict.get('college_tier')} university.\n"
+            f"Primary Influencing Factor: {primary['display_name']} ({primary['impact']} impact).\n"
+            f"Top Factors: {[f['display_name'] for f in top_factors]}"
+        )
+        text = llm_text(system_prompt, user_prompt, max_tokens=400)
+        if text:
+            return text
 
         # Deterministic plain-language template fallback
         if decision == "Accept":
