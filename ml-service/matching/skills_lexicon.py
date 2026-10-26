@@ -10,7 +10,7 @@ a list-like context so prose such as "we go further" doesn't count as Go.
 """
 import re
 from functools import lru_cache
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # (canonical, category, aliases). An alias starting with "re:" is a raw regex
 # matched case-sensitively; everything else is a case-insensitive literal.
@@ -231,20 +231,53 @@ _SKILLS: List[Tuple[str, str, List[str]]] = [
 SOFT_CATEGORY = "Soft Skills"
 
 
+# Plain aliases are compiled lowercase and run against lowercased text: an
+# IGNORECASE pattern behind a lookbehind can't use re's fast literal scan,
+# which made job search CPU-bound on small hosts.
+_PLAIN: set = set()
+
+
 def _compile_alias(alias: str) -> re.Pattern:
     if alias.startswith("re:"):
         return re.compile(alias[3:], re.MULTILINE)
-    escaped = re.escape(alias).replace(r"\ ", r"[\s\-]?")
-    return re.compile(r"(?<![A-Za-z0-9+#.])" + escaped + r"(?![A-Za-z0-9+#])", re.IGNORECASE)
+    # The left word boundary is checked in _count: a leading lookbehind would
+    # stop re from jumping straight to the alias's first literal character.
+    escaped = re.escape(alias.lower()).replace(r"\ ", r"[\s\-]?")
+    pat = re.compile(escaped + r"(?![a-z0-9+#])")
+    _PLAIN.add(pat)
+    return pat
 
 
-def _count(pats: List[re.Pattern], text: str) -> int:
+_LEFT_WORD = frozenset("abcdefghijklmnopqrstuvwxyz0123456789+#.")
+
+
+def _count(pats: List[re.Pattern], text: str, lower: Optional[str] = None) -> int:
     """Mentions counted once per position, so 'React.js' isn't counted for both 'react' and 'react.js'."""
+    if lower is None:
+        lower = text.lower()
     starts = set()
     for p in pats:
-        for m in p.finditer(text):
-            starts.add(m.start())
+        if p in _PLAIN:
+            for m in p.finditer(lower):
+                i = m.start()
+                if i == 0 or lower[i - 1] not in _LEFT_WORD:
+                    starts.add(i)
+        else:
+            for m in p.finditer(text):
+                starts.add(m.start())
     return len(starts)
+
+
+_SQUASH = re.compile(r"[\s\-]+")
+
+
+def _literal(alias: str) -> Optional[str]:
+    """The alias with spaces and hyphens removed. Any match of its pattern,
+    squashed the same way, contains it, so a squashed text without it can be
+    skipped without running the regex (None = always run)."""
+    if alias.startswith("re:"):
+        return None
+    return _SQUASH.sub("", alias.lower()) or None
 
 
 @lru_cache(maxsize=1)
@@ -259,6 +292,20 @@ def _compiled() -> List[Tuple[str, str, List[re.Pattern]]]:
     return out
 
 
+@lru_cache(maxsize=1)
+def _prefilters() -> List[Optional[List[str]]]:
+    """Per skill: literals of which at least one must be in the text, or None."""
+    out = []
+    for canonical, _, aliases in _SKILLS:
+        names = list(aliases)
+        if not any(a.lower() == canonical.lower() for a in aliases if not a.startswith("re:")) \
+                and not any(a.startswith("re:") for a in aliases):
+            names.append(canonical)
+        lits = [_literal(a) for a in names]
+        out.append(None if any(l is None for l in lits) else lits)
+    return out
+
+
 def skill_category(canonical: str) -> str:
     for c, cat, _ in _SKILLS:
         if c == canonical:
@@ -268,14 +315,32 @@ def skill_category(canonical: str) -> str:
 
 def find_skills(text: str) -> Dict[str, int]:
     """Canonical skill -> number of mentions in the text."""
-    found: Dict[str, int] = {}
+    return dict(_find_skills(text or ""))
+
+
+@lru_cache(maxsize=2048)
+def _find_skills(text: str) -> Tuple[Tuple[str, int], ...]:
+    # Job search runs this over hundreds of descriptions on a fraction of a
+    # CPU, so skills whose keywords aren't in the text are skipped unmatched.
+    found = []
     if not text:
-        return found
-    for canonical, _, pats in _compiled():
-        hits = _count(pats, text)
+        return ()
+    lower = text.lower()
+    squashed = _SQUASH.sub("", lower)
+    for (canonical, _, pats), lits in zip(_compiled(), _prefilters()):
+        if lits is not None and not any(l in squashed for l in lits):
+            continue
+        hits = _count(pats, text, lower)
         if hits:
-            found[canonical] = hits
-    return found
+            found.append((canonical, hits))
+    return tuple(found)
+
+
+def _first_match(p: re.Pattern, text: str) -> Optional[re.Match]:
+    if p not in _PLAIN:
+        return p.search(text)
+    lower = text.lower()
+    return next((m for m in p.finditer(lower) if m.start() == 0 or lower[m.start() - 1] not in _LEFT_WORD), None)
 
 
 def canonicalize(term: str) -> str:
@@ -287,7 +352,7 @@ def canonicalize(term: str) -> str:
         if canonical.lower() == t.lower():
             return canonical
         for p in pats:
-            m = p.search(t)
+            m = _first_match(p, t)
             if m and len(m.group(0)) >= max(1, len(t) - 3):
                 return canonical
     return t
