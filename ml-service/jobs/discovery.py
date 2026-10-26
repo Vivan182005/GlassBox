@@ -56,7 +56,7 @@ ROLE_FAMILIES: Dict[str, List[str]] = {
 _LEVELS = [
     (0, r"\bintern(ship)?\b|\btrainee\b|\bapprentice\b"),
     (5, r"\bdirector\b|\bhead of\b|\bvp\b|\bvice president\b|\bchief\b"),
-    (4, r"\bprincipal\b|\bstaff\b|\blead\b|\barchitect\b|\bengineering manager\b|\bmanager,|\bsr\.? manager\b"),
+    (4, r"\bprincipal\b|\bstaff\b|\blead\b|\barchitect\b|\bengineering manager\b|\bmanager,|\bsr\.? manager\b|\bavp\b|assistant vice president"),
     (3, r"\bsenior\b|\bsr\.?\b|\biii\b|\b3\b"),
     (1, r"\bjunior\b|\bjr\.?\b|\bassociate\b|\bgraduate\b|\bfresher\b|\bentry\b|\bi\b|\b1\b"),
 ]
@@ -150,7 +150,8 @@ _GENERIC_TITLE_WORDS = {"manager", "analyst", "engineer", "developer", "speciali
                         "officer", "lead", "head", "intern", "of", "and", "the", "for", "ai"}
 
 
-def score_job(job: Dict[str, Any], roles: List[str], expansion, cand_skills: Dict[str, int], cand_years: float) -> Dict[str, Any]:
+def score_job(job: Dict[str, Any], roles: List[str], expansion, cand_skills: Dict[str, int], cand_years: float,
+              student: bool = False) -> Dict[str, Any]:
     """Fit = title family match + skill overlap with the JD + seniority fit.
     Without a description the skill overlap is unknown, so it's scored
     conservatively instead of letting un-read postings outrank read ones."""
@@ -186,6 +187,13 @@ def score_job(job: Dict[str, Any], roles: List[str], expansion, cand_skills: Dic
     # Seniority scales the fit instead of adding to it: a perfect title and
     # skill match is still a long shot when the job wants 4 more years.
     fit = (0.52 * tscore + 0.48 * skill_score) * (0.5 + 0.5 * seniority)
+    if student:
+        # Still studying: internships are what they can actually take now.
+        if level == 0:
+            fit = min(1.0, fit * 1.15 + 0.05)
+        else:
+            fit *= 0.72
+            seniority_note = seniority_note or "Full-time role, for after you graduate"
     return {
         **job,
         "fit": int(round(min(fit, 1.0) * 100)),
@@ -199,7 +207,7 @@ def score_job(job: Dict[str, Any], roles: List[str], expansion, cand_skills: Dic
 
 
 def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, cities: Optional[List[str]] = None,
-                  max_age_days: Optional[int] = None, limit: int = 120) -> Dict[str, Any]:
+                  max_age_days: Optional[int] = None, limit: int = 120, student: bool = False) -> Dict[str, Any]:
     started = time.time()
     roles = [r.strip() for r in roles if r and r.strip()][:5]
     if not roles:
@@ -243,7 +251,7 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
             continue
         candidates.append(job)
 
-    ranked = [score_job(j, roles, expansion, cand_skills, years) for j in candidates]
+    ranked = [score_job(j, roles, expansion, cand_skills, years, student) for j in candidates]
     ranked.sort(key=lambda j: (j["title_match"], j["fit"]), reverse=True)
 
     # Read the full description for the strongest title matches so their
@@ -259,14 +267,14 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     refreshed = []
     for j in ranked:
         if descs.get(j["id"]):
-            j = score_job({**j, "description": descs[j["id"]]}, roles, expansion, cand_skills, years)
+            j = score_job({**j, "description": descs[j["id"]]}, roles, expansion, cand_skills, years, student)
         refreshed.append(j)
     ranked = sorted(refreshed, key=lambda j: j["fit"], reverse=True)
 
     network_jobs = []
     for role in roles[:2]:
         network_jobs.extend(jsearch(role, cities[0] if cities and cities[0] != "Remote" else ""))
-    network_ranked = [score_job(j, roles, expansion, cand_skills, years) for j in network_jobs if title_match(j["title"], roles, expansion) > 0]
+    network_ranked = [score_job(j, roles, expansion, cand_skills, years, student) for j in network_jobs if title_match(j["title"], roles, expansion) > 0]
 
     jobs_out = []
     for j in ranked[:limit] + network_ranked[:40]:

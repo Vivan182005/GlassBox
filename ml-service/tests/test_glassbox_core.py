@@ -154,6 +154,56 @@ class TestFresherExperience(unittest.TestCase):
         self.assertEqual(find_skills("Sentence Transformers, n8n onboarding, faster monitoring"), {})
 
 
+class TestApplyFlow(unittest.TestCase):
+    CHECK = {"score": 70, "verdict": "pass", "breakdown": {"keywords": 70},
+             "coverage": {"must_matched": 7, "must_total": 8, "nice_matched": 3, "nice_total": 4},
+             "knockouts": [], "ats": {"name": "Greenhouse"}}
+
+    def test_rating_threshold_and_caps(self):
+        from application.rating import rate
+        good = rate({"title": "Data Analyst", "title_match": 1.0, "cities": ["Bengaluru"]}, self.CHECK, ["Bengaluru"],
+                    {"screening_years": 1.5})
+        self.assertGreaterEqual(good["score"], 4.0)
+        self.assertTrue(good["apply"])
+        senior = rate({"title": "Senior Data Analyst", "title_match": 1.0, "cities": ["Bengaluru"]},
+                      {**self.CHECK, "knockouts": [{"type": "experience", "severity": "high", "detail": "Asks for 5+ years"}]},
+                      ["Bengaluru"], {"screening_years": 0.2})
+        self.assertLessEqual(senior["score"], 3.4)
+        student = rate({"title": "Data Analyst", "title_match": 1.0, "cities": ["Bengaluru"]}, self.CHECK, ["Bengaluru"],
+                       {"screening_years": 0.2, "student": True})
+        self.assertLess(student["score"], 4.0)
+
+    def test_answers_never_guess_sensitive_or_salary(self):
+        from application.answers import answer_form
+        fields = [{"id": "g", "label": "Gender", "type": "select", "required": True, "options": ["Male", "Female"], "sensitive": True},
+                  {"id": "c", "label": "Expected CTC", "type": "text", "required": True, "options": [], "sensitive": False},
+                  {"id": "e", "label": "Email", "type": "text", "required": True, "options": [], "sensitive": False},
+                  {"id": "r", "label": "Resume/CV", "type": "file", "required": True, "options": [], "sensitive": False}]
+        with patch("application.answers.llm_json", return_value=None):
+            rows = {r["id"]: r for r in answer_form(fields, "resume", {"name": "A B"}, {"email": "a@b.co"}, {})}
+        self.assertEqual(rows["g"]["status"], "sensitive")
+        self.assertIsNone(rows["g"]["value"])
+        self.assertEqual(rows["c"]["status"], "needs_you")
+        self.assertEqual(rows["e"]["value"], "a@b.co")
+        self.assertEqual(rows["r"]["status"], "file")
+        with patch("application.answers.llm_json", return_value=None):
+            saved = answer_form(fields, "resume", {}, {}, {}, saved={"expected_ctc": "8 LPA"})
+        self.assertEqual(next(r for r in saved if r["id"] == "c")["value"], "8 LPA")
+
+    def test_fact_guard(self):
+        from application.resume_builder import _guard, _normalize
+        src = "Python, PostgreSQL. Built dashboards used by 4 teams."
+        data = _normalize({"skills": [{"group": "x", "items": ["Python", "SQL", "Power BI"]}],
+                           "experience": [{"company": "Acme", "bullets": []}],
+                           "projects": ["Dashboards", {"name": "P", "bullets": [
+                               {"text": "Built dashboards used by 40 teams", "source": "Built dashboards used by 4 teams."}]}]})
+        notes = _guard(data, src)
+        self.assertEqual(data["skills"][0]["items"], ["Python", "SQL"])  # SQL is implied by PostgreSQL
+        self.assertEqual(data["experience"], [])  # Acme isn't on the resume
+        self.assertEqual(data["projects"][1]["bullets"], ["Built dashboards used by 4 teams."])
+        self.assertTrue(any("Power BI" in n for n in notes))
+
+
 class TestFairnessLab(unittest.TestCase):
     def test_fairness_metrics(self):
         metrics = calculate_fairness_metrics()

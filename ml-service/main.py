@@ -1,6 +1,8 @@
 import os
 import sys
 import json
+import re
+import concurrent.futures as cf
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -9,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -26,6 +28,10 @@ from matching.ats_check import run_check, tailor
 from bias_model.model_trainer import trainer_instance
 from explainability.explainer import explainer_instance
 from explainability.fairness import calculate_fairness_metrics, calculate_mitigated_fairness_metrics
+from application.rating import rate, APPLY_THRESHOLD
+from application.forms import application_form
+from application.answers import answer_form, summarize
+from application import resume_builder
 
 app = FastAPI(title="GlassBox ML Service", description="Resume X-ray, India job network and ATS pass check", version="2.0.0")
 
@@ -135,11 +141,12 @@ class JobSearchRequest(BaseModel):
     cities: List[str] = []
     max_age_days: Optional[int] = None
     limit: int = 120
+    student: bool = False
 
 
 @app.post("/api/jobs/search")
 def jobs_search(req: JobSearchRequest):
-    return discover_jobs(req.roles, req.skills, req.years_experience, req.cities, req.max_age_days, req.limit)
+    return discover_jobs(req.roles, req.skills, req.years_experience, req.cities, req.max_age_days, req.limit, req.student)
 
 
 @app.get("/api/jobs/description")
@@ -190,6 +197,97 @@ def ats_tailor(req: TailorRequest):
     if not out:
         raise HTTPException(503, "AI rewriting is unavailable right now (no working LLM key).")
     return out
+
+
+# ---------------------------------------------------------------------------
+# Apply: rate -> tailor -> answer -> approve
+# ---------------------------------------------------------------------------
+
+class RateRequest(BaseModel):
+    resume_text: str
+    profile: Dict[str, Any] = {}
+    audit: Dict[str, Any]
+    jobs: List[Dict[str, Any]]
+    cities: List[str] = []
+
+
+def _jd_for(job: Dict[str, Any]) -> str:
+    return (fetch_job_description(job["id"]).get("description") or "").strip() if job.get("id") else ""
+
+
+def _rate_one(req_resume: str, profile, audit_result, job, cities):
+    jd = _jd_for(job)
+    if len(jd) < 80:
+        return {"id": job.get("id"), "error": "No job description to rate against."}
+    check = run_check(req_resume, profile, audit_result, jd, job.get("ats_id") or "generic", job.get("title", ""), job.get("company", ""))
+    return {"id": job["id"], "rating": rate(job, check, cities, profile), "check_score": check["score"], "verdict": check["verdict"]}
+
+
+@app.post("/api/apply/rate")
+def apply_rate(req: RateRequest):
+    """1-5 rating for up to 12 jobs: worth applying at 4.0+."""
+    jobs = req.jobs[:12]
+    with cf.ThreadPoolExecutor(max_workers=6) as ex:
+        results = list(ex.map(lambda j: _rate_one(req.resume_text, req.profile, req.audit, j, req.cities), jobs))
+    return {"threshold": APPLY_THRESHOLD, "ratings": results}
+
+
+class PrepareRequest(BaseModel):
+    resume_text: str
+    profile: Dict[str, Any] = {}
+    audit: Dict[str, Any]
+    job: Dict[str, Any]
+    saved_answers: Dict[str, Any] = {}
+    cities: List[str] = []
+
+
+@app.post("/api/apply/prepare")
+def apply_prepare(req: PrepareRequest):
+    """Everything needed to apply to one job: rating, tailored resume (re-scored),
+    cover letter, and an answer for every question on the real form."""
+    job = req.job
+    jd = _jd_for(job)
+    if len(jd) < 80:
+        raise HTTPException(400, "This posting has no readable job description, so it can't be tailored.")
+    ats_id = job.get("ats_id") or "generic"
+    before = run_check(req.resume_text, req.profile, req.audit, jd, ats_id, job.get("title", ""), job.get("company", ""))
+    with cf.ThreadPoolExecutor(max_workers=3) as ex:
+        f_form = ex.submit(application_form, job["id"])
+        f_resume = ex.submit(resume_builder.build, req.resume_text, req.profile, req.audit, jd, before, ats_id,
+                             job.get("title", ""), job.get("company", ""))
+        form = f_form.result()
+        answers = answer_form(form["fields"], req.resume_text, req.profile, req.audit.get("contact") or {}, job, jd, req.saved_answers)
+        tailored = f_resume.result()
+    return {
+        "job": {k: job.get(k) for k in ("id", "title", "company", "url", "ats_id", "ats_name", "location")},
+        "rating": rate(job, before, req.cities, req.profile),
+        "check": {k: before[k] for k in ("score", "verdict", "breakdown", "coverage", "knockouts", "ats")},
+        "tailored": tailored,
+        "form": {"source": form["source"], "note": form.get("note") or form.get("error")},
+        "answers": answers,
+        "answer_summary": summarize(answers),
+    }
+
+
+class ResumeFileRequest(BaseModel):
+    resume: Dict[str, Any]
+    header: Dict[str, Any]
+    filename: str = "resume"
+
+
+@app.post("/api/apply/resume.pdf")
+def apply_resume_pdf(req: ResumeFileRequest):
+    name = re.sub(r"[^A-Za-z0-9_-]+", "_", req.filename)[:60] or "resume"
+    return Response(resume_builder.to_pdf(req.resume, req.header), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'})
+
+
+@app.post("/api/apply/resume.docx")
+def apply_resume_docx(req: ResumeFileRequest):
+    name = re.sub(r"[^A-Za-z0-9_-]+", "_", req.filename)[:60] or "resume"
+    return Response(resume_builder.to_docx(req.resume, req.header),
+                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.docx"'})
 
 
 # ---------------------------------------------------------------------------

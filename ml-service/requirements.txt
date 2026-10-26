@@ -13,3 +13,4 @@ numpy>=1.26.0
 shap>=0.45.0
 lime>=0.2.0.1
 supabase>=2.31.0
+fpdf2>=2.7.9

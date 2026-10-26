@@ -1,0 +1,18 @@
+name: Keep the API awake
+
+# Render's free plan sleeps a service after 15 idle minutes, and waking it
+# takes ~80s, which is what made the first resume scan feel slow. A ping
+# every 10 minutes keeps it warm (one always-on service fits in the free
+# 750 hours a month).
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping the ML service
+        run: curl -fsS --max-time 120 https://glassbox-ml-service.onrender.com/api/health -o /dev/null -w "%{http_code} in %{time_total}s\n" || true

@@ -154,7 +154,7 @@ def _column_text(words: List[Dict[str, Any]], gutter: float) -> str:
 def _read_pdf(data: bytes) -> Dict[str, Any]:
     reading, naive = [], []
     layout = {"pages": 0, "column_pages": 0, "tables": 0, "images": 0, "icons": 0, "photo": False,
-              "margin_contact": [], "fonts": set(), "cid_garbage": False}
+              "margin_contact": [], "fonts": set(), "cid_garbage": False, "links": []}
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         layout["pages"] = len(pdf.pages)
         for page in pdf.pages:
@@ -184,6 +184,18 @@ def _read_pdf(data: bytes) -> Dict[str, Any]:
                     layout["images"] += 1
                     if w >= 50 and h >= 50 and img["top"] < page.height * 0.3:
                         layout["photo"] = True
+            page_lines = _group_lines(words)
+            for link in page.hyperlinks or []:
+                uri = (link.get("uri") or "").strip()
+                if not uri:
+                    continue
+                if uri not in layout["links"]:
+                    layout["links"].append(uri)
+                # The line a link sits on (e.g. a project's title row) says what it points to.
+                mid = (float(link["top"]) + float(link["bottom"])) / 2
+                line = next((l for l in page_lines if l[0]["top"] - 2 <= mid <= l[0]["bottom"] + 2), None)
+                if line:
+                    layout.setdefault("link_lines", []).append({"uri": uri, "line": _line_text(line)[:200]})
             h = float(page.height)
             for line in _group_lines(words):
                 if line[0]["top"] < 30 or line[0]["bottom"] > h - 30:
@@ -191,7 +203,8 @@ def _read_pdf(data: bytes) -> Dict[str, Any]:
                     if EMAIL_RE.search(t) or PHONE_RE.search(t):
                         layout["margin_contact"].append(t.strip())
     text = "\n".join(reading)
-    layout["cid_garbage"] = "(cid:" in text or "(cid:" in "".join(naive)
+    layout["cid_count"] = max(text.count("(cid:"), "".join(naive).count("(cid:"))
+    layout["cid_garbage"] = layout["cid_count"] > 0
     layout["fonts"] = sorted(f for f in layout["fonts"] if f)
     return {"text": text, "naive_text": "\n".join(naive), "layout": layout, "file_type": "pdf"}
 
@@ -246,11 +259,29 @@ def detect_sections(text: str) -> Dict[str, Any]:
         if not line or len(line) > 42 or len(line.split()) > 5:
             continue
         key = re.sub(r"\s+", " ", re.sub(r"[^a-z&' ]", " ", line.lower())).strip()
-        if key in _HEADER_LOOKUP:
-            found.setdefault(_HEADER_LOOKUP[key], line)
+        parts = [key] + [p.strip() for p in re.split(r"\s*(?:&|\band\b)\s*", key) if p.strip()]
+        hit = next((p for p in parts if p in _HEADER_LOOKUP), None)
+        if hit:
+            for p in parts[1:] if hit != key else [key]:
+                if p in _HEADER_LOOKUP:
+                    found.setdefault(_HEADER_LOOKUP[p], line)
         elif key in NONSTANDARD_SECTIONS and (line.isupper() or line.istitle() or len(line.split()) <= 3):
             nonstandard.append({"header": line, "suggested": NONSTANDARD_SECTIONS[key].title()})
     return {"found": found, "nonstandard": nonstandard}
+
+
+def font_families(fonts: List[str]) -> List[str]:
+    """Bold/italic cuts are one typeface (CMBX10, CMR10, CMTI10 are all
+    Computer Modern), and icon fonts aren't body text."""
+    out = set()
+    for f in fonts:
+        if re.search(r"awesome|icon|symbol|dingbat|wingding|material", f, re.IGNORECASE):
+            continue
+        if re.match(r"^(CM|LM|SF)[A-Z]{1,4}\d", f):
+            out.add("Computer Modern")
+            continue
+        out.add(re.sub(r"(MT|PS|Std|Pro)?(,?(Bold|Italic|Regular|Light|Medium|Semibold|Oblique|BoldItalic))+$", "", f, flags=re.IGNORECASE) or f)
+    return sorted(out)
 
 
 def audit(read: Dict[str, Any]) -> Dict[str, Any]:
@@ -264,6 +295,20 @@ def audit(read: Dict[str, Any]) -> Dict[str, Any]:
         "linkedin": LINKEDIN_RE.search(text).group(0) if LINKEDIN_RE.search(text) else None,
         "github": GITHUB_RE.search(text).group(0) if GITHUB_RE.search(text) else None,
     }
+    # "LinkedIn" printed as a clickable word: the URL exists only as a link
+    # target, which ATS parsers never read.
+    hidden_links = []
+    for uri in lay.get("links") or []:
+        for key, rx in (("linkedin", LINKEDIN_RE), ("github", GITHUB_RE)):
+            m = rx.search(uri)
+            if m and not contact[key]:
+                contact[key] = m.group(0)
+                hidden_links.append(key)
+        if uri.startswith("mailto:") and not contact["email"]:
+            contact["email"] = uri[7:]
+            hidden_links.append("email")
+    contact["links"] = [u for u in (lay.get("links") or []) if u.startswith("http")][:12]
+    contact["link_lines"] = [l for l in (lay.get("link_lines") or []) if l["uri"].startswith("http")][:20]
     personal = [label for label, pat in PERSONAL_DETAIL_PATTERNS.items() if re.search(pat, text, re.IGNORECASE)]
     bullet_lines = [l for l in text.split("\n") if re.match(r"\s*[•\-\*▪●◦–]\s+\S", l)]
     quantified = [l for l in bullet_lines if re.search(r"\d+(?:\.\d+)?\s*(?:%|x\b|[kmb]\b|mn\b|cr\b|\+)|₹|\$|\b\d{2,}\b|\blakh|\bcrore", l, re.IGNORECASE)]
@@ -278,10 +323,21 @@ def audit(read: Dict[str, Any]) -> Dict[str, Any]:
         add("scanned", "critical", "Resume is an image, not text",
             "Almost no selectable text was found, so an ATS sees a blank document.",
             "Export the resume from Word or Google Docs as a text PDF. Don't scan or screenshot it.")
-    if lay.get("cid_garbage"):
+    cid = lay.get("cid_count", 1 if lay.get("cid_garbage") else 0)
+    if cid > 3:
         add("encoding", "critical", "Broken font encoding",
-            "Parts of the text come out as '(cid:NN)' codes, so those words are unreadable to a parser.",
+            f"{cid} pieces of text come out as '(cid:NN)' codes, so those words are unreadable to a parser.",
             "Re-export with a standard font (Calibri, Arial, Garamond), or use 'Save as PDF' instead of 'Print to PDF'.")
+    elif cid:
+        add("icon_glyphs", "low", f"{cid} icon{'s' if cid > 1 else ''} read as '(cid:NN)'",
+            "An icon font (e.g. a phone or mail symbol) comes out as a code. The rest of the text reads fine.",
+            "Drop the icons or write the label in words: 'Phone:', 'Email:'.")
+    if hidden_links:
+        names = {"linkedin": "LinkedIn", "github": "GitHub", "email": "email"}
+        add("hidden_links", "medium", "Links hidden behind words",
+            f"Your {', '.join(names[k] for k in hidden_links)} {'is' if len(hidden_links) == 1 else 'are'} only a clickable word. "
+            "ATS parsers keep the visible text, not the link, so recruiters never see the URL.",
+            "Print the URLs in full, e.g. 'linkedin.com/in/your-name | github.com/your-handle'.")
     if lay.get("column_pages"):
         add("columns", "high", "Multi-column layout",
             f"{lay['column_pages']} page(s) use side-by-side columns. Parsers that read straight across the page will interleave them.",
@@ -334,8 +390,9 @@ def audit(read: Dict[str, Any]) -> Dict[str, Any]:
         add("quantify", "low", "Few measurable results",
             f"Only {len(quantified)} of {len(bullet_lines)} bullets include a number.",
             "Add impact numbers: '% faster', 'users', '₹ saved', 'requests/sec'.")
-    if len(lay.get("fonts") or []) > 4:
-        add("fonts", "low", f"{len(lay['fonts'])} different fonts", "Mixed fonts can come from copy-pasting and sometimes carry encoding problems.",
+    families = font_families(lay.get("fonts") or [])
+    if len(families) > 3:
+        add("fonts", "low", f"{len(families)} different fonts", "Mixed fonts can come from copy-pasting and sometimes carry encoding problems.",
             "Use one or two fonts throughout.")
 
     return {
@@ -353,6 +410,7 @@ _PENALTIES = {
     "scanned": (70, 70), "encoding": (35, 35), "text_boxes": (18, 18), "no_email": (10, 10), "no_phone": (4, 4),
     "missing_experience": (10, 6), "missing_education": (8, 5), "missing_skills": (8, 5), "thin": (6, 6),
     "personal_details": (0, 0), "length": (0, 0), "quantify": (0, 0), "fonts": (2, 2),
+    "icon_glyphs": (2, 1), "hidden_links": (3, 3),
 }
 
 

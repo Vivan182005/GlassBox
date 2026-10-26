@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from ats.profiles import get_profile, public_profile
 from core.llm import llm_json
-from matching.skills_lexicon import find_skills, term_in_text, canonicalize, skill_category, SOFT_CATEGORY
+from matching.skills_lexicon import find_skills, term_in_text, canonicalize, skill_category, implied_by, SOFT_CATEGORY
 from parsing.profile_extractor import detect_degree
 from parsing.resume_reader import parse_score
 
@@ -160,13 +160,18 @@ def _match_terms(terms: List[str], resume: str, skills_text: str) -> List[Dict[s
     for t in terms:
         total = term_in_text(t, resume)
         in_skills = term_in_text(t, skills_text) if skills_text else 0
+        via: List[str] = []
         if total == 0:
-            status = "missing"
+            via = implied_by(t, resume)
+            status = "implied" if via else "missing"
         elif skills_text and total - in_skills <= 0:
             status = "skills_only"
         else:
             status = "matched"
-        rows.append({"term": t, "status": status, "mentions": total})
+        row = {"term": t, "status": status, "mentions": total}
+        if via:
+            row["via"] = via
+        rows.append(row)
     return rows
 
 
@@ -193,7 +198,9 @@ def run_check(resume_text: str, profile: Dict[str, Any], audit_result: Dict[str,
     soft = _match_terms(jd["soft_skills"], resume_text, skills_text)
 
     def credit(rows):
-        return sum(1.0 if r["status"] == "matched" else 0.8 if r["status"] == "skills_only" else 0 for r in rows)
+        # Implied skills get partial credit: an ATS keyword search for "SQL"
+        # won't match "PostgreSQL", even though the candidate has it.
+        return sum({"matched": 1.0, "skills_only": 0.8, "implied": 0.4}.get(r["status"], 0) for r in rows)
 
     denom = 2 * len(must) + len(nice)
     keyword_score = round(100 * (2 * credit(must) + credit(nice)) / denom) if denom else 60
@@ -253,6 +260,12 @@ def run_check(resume_text: str, profile: Dict[str, Any], audit_result: Dict[str,
                       "detail": "Only if you genuinely have them: add " + ", ".join(missing_must[:8])
                                 + " to your Skills section and to a bullet that shows you using them.",
                       "terms": missing_must})
+    implied = [r for r in must + nice if r["status"] == "implied"]
+    if implied:
+        fixes.append({"priority": 1, "kind": "keywords", "title": "Name skills you already have in the job's words",
+                      "detail": "; ".join(f"write '{r['term']}' (you list {', '.join(r['via'][:2])})" for r in implied[:5])
+                                + ". An ATS keyword search won't connect them for you.",
+                      "terms": [r["term"] for r in implied]})
     skills_only = [r["term"] for r in must + nice if r["status"] == "skills_only"]
     if skills_only:
         fixes.append({"priority": 2, "kind": "keywords", "title": "Keywords only listed, never shown in use",
@@ -277,6 +290,7 @@ def run_check(resume_text: str, profile: Dict[str, Any], audit_result: Dict[str,
         "keywords": {"must_have": must, "nice_to_have": nice, "soft_skills": soft},
         "coverage": {
             "must_matched": sum(1 for r in must if r["status"] != "missing"), "must_total": len(must),
+            "must_implied": sum(1 for r in must if r["status"] == "implied"),
             "nice_matched": sum(1 for r in nice if r["status"] != "missing"), "nice_total": len(nice),
         },
         "title_alignment": title,

@@ -1,17 +1,19 @@
 import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import Nav from './components/Nav';
 import CheckDrawer from './components/CheckDrawer';
+import ApplyDrawer from './components/ApplyDrawer';
 import { Toast, Spinner } from './components/ui/primitives';
 import ScanView from './views/ScanView';
 import JobsView, { cityFromLocation } from './views/JobsView';
 import CompanyView from './views/CompanyView';
+import ApplicationsView from './views/ApplicationsView';
 import Footer from './components/Footer';
 import { api } from './api';
 import { storage } from './lib/format';
 
 const FairnessView = lazy(() => import('./views/FairnessView'));
 
-const VIEWS = ['scan', 'jobs', 'company', 'fairness'];
+const VIEWS = ['scan', 'jobs', 'applications', 'company', 'fairness'];
 const viewFromHash = () => {
   const h = window.location.hash.replace('#', '');
   return VIEWS.includes(h) ? h : null;
@@ -23,6 +25,7 @@ const FOOTER_COLUMNS = [
     links: [
       { label: 'Resume X-ray', href: '#scan' },
       { label: 'Jobs in India', href: '#jobs' },
+      { label: 'Applications', href: '#applications' },
       { label: 'ATS Lookup', href: '#company' },
       { label: 'Fairness Lab', href: '#fairness' },
     ],
@@ -58,6 +61,10 @@ export default function App() {
   const [filters, setFilters] = useState(() => storage.get('gb.filters', { cities: [], maxAge: 0 }));
   const [jobResults, setJobResults] = useState(null);
   const [checkJob, setCheckJob] = useState(null);
+  const [applyJob, setApplyJob] = useState(null);
+  const [ratings, setRatings] = useState({});
+  const [applications, setApplications] = useState(() => storage.get('gb.applications', []));
+  const [savedAnswers, setSavedAnswers] = useState(() => storage.get('gb.answers', {}));
   const [features, setFeatures] = useState(() => analysis?.profile?.bias_features ? { ...DEFAULT_FEATURES, ...analysis.profile.bias_features } : DEFAULT_FEATURES);
   const [health, setHealth] = useState(null);
   const [meta, setMeta] = useState(null);
@@ -78,6 +85,8 @@ export default function App() {
   useEffect(() => { storage.set('gb.analysis', analysis); }, [analysis]);
   useEffect(() => { storage.set('gb.roles', roles); }, [roles]);
   useEffect(() => { storage.set('gb.filters', filters); }, [filters]);
+  useEffect(() => { storage.set('gb.applications', applications); }, [applications]);
+  useEffect(() => { storage.set('gb.answers', savedAnswers); }, [savedAnswers]);
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));
@@ -92,6 +101,7 @@ export default function App() {
     const city = cityFromLocation(res.profile?.location);
     setFilters(f => ({ ...f, cities: city ? [city] : f.cities }));
     setJobResults(null);
+    setRatings({});
     if (res.profile?.bias_features) setFeatures({ ...DEFAULT_FEATURES, ...res.profile.bias_features });
     window.scrollTo({ top: 0 });
   };
@@ -113,7 +123,11 @@ export default function App() {
         )}
         {view === 'jobs' && (
           <JobsView analysis={analysis} roles={roles} setRoles={setRoles} results={jobResults} setResults={setJobResults}
-            filters={filters} setFilters={setFilters} meta={meta} openCheck={setCheckJob} notify={notify} goScan={() => setView('scan')} />
+            filters={filters} setFilters={setFilters} meta={meta} openCheck={setCheckJob} openApply={setApplyJob}
+            ratings={ratings} setRatings={setRatings} applied={applications} notify={notify} goScan={() => setView('scan')} />
+        )}
+        {view === 'applications' && (
+          <ApplicationsView applications={applications} setApplications={setApplications} goJobs={() => setView('jobs')} />
         )}
         {view === 'company' && <CompanyView analysis={analysis} roles={roles} openCheck={setCheckJob} notify={notify} meta={meta} />}
         {view === 'fairness' && (
@@ -123,6 +137,11 @@ export default function App() {
         )}
       </main>
       <Footer columns={FOOTER_COLUMNS} />
+      {applyJob && (
+        <ApplyDrawer job={applyJob} analysis={analysis} cities={filters.cities} savedAnswers={savedAnswers} setSavedAnswers={setSavedAnswers}
+          onApplied={(entry) => setApplications(list => [entry, ...list.filter(a => a.id !== entry.id)])}
+          onClose={() => setApplyJob(null)} notify={notify} goScan={() => setView('scan')} />
+      )}
       {checkJob && <CheckDrawer job={checkJob} analysis={analysis} onClose={() => setCheckJob(null)} notify={notify} goScan={() => setView('scan')} />}
       <Toast message={toast?.message} kind={toast?.kind} onClose={() => setToast(null)} />
     </>

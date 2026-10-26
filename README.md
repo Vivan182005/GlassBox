@@ -6,21 +6,23 @@
 2. **Jobs in India**: live openings read straight from the career boards of 119 companies hiring in India (Greenhouse, Lever, Ashby, SmartRecruiters and Workday public APIs). Because each job comes from the company's own ATS, the ATS behind every posting is known for certain. Jobs are ranked by role-family match, skill overlap with the full job description, and seniority fit.
 3. **ATS pass check**: for any job, GlassBox pulls the recruiter's keywords out of the JD, matches them alias-aware against your resume, checks knockouts (years, degree), simulates parse survival on that company's ATS, and gives a pass estimate with prioritised fixes. Optionally, it rewrites your headline, summary and bullets for the job using only facts already on your resume.
 4. **ATS Lookup**: name any company to find which ATS it uses. GlassBox checks the verified registry, probes ATS vendors live (Greenhouse, Lever, Ashby, SmartRecruiters, Darwinbox, Keka, Zoho Recruit, Freshteam, iCIMS), fingerprints careers pages, and only then falls back to a clearly labelled AI estimate. When no ATS turns up, it searches the wider network (LinkedIn, Naukri, Indeed, Instahyre and others).
-5. **Fairness Lab**: a deliberately biased screening model audited with SHAP, LIME, ICE plots and fairness metrics, to show how proxies like college tier or a career gap can sway automated decisions.
+5. **Rate → tailor → apply**: every matching job gets a 1–5 rating (CV match on skills you actually have, role fit, level fit, location, red flags such as stale postings). GlassBox recommends applying only at 4.0+, an idea borrowed from [career-ops](https://github.com/career-ops-hq/career-ops). For a chosen job it writes a tailored, single-column resume (PDF/Word) from facts on your resume only, with a code-level fact guard, and re-scores it so the before/after ATS score is measured. It reads the job's real application form (Greenhouse, Lever and Ashby questions; standard fields elsewhere), fills what your resume answers, drafts free-text answers, and asks you for the rest. Answers about salary, notice period and demographics always come from you and are saved for the next form. After you approve, one click opens the form, downloads the resume and copies every answer. You press Submit, because company forms need you signed in and block automated submissions. Applications are tracked in the browser.
+6. **Fairness Lab**: a deliberately biased screening model audited with SHAP, LIME, ICE plots and fairness metrics, to show how proxies like college tier or a career gap can sway automated decisions.
 
 > GlassBox simulates documented and commonly observed ATS behaviour. It does not access any vendor's or employer's private systems, and its scores are estimates.
 
 ## Architecture
 
 ```
-frontend/   React + Vite. Scan → Jobs → Pass check flow (Vercel)
-gateway/    Node/Express streaming proxy; keeps API keys server-side (Render)
+frontend/   React + Vite. Scan → Jobs → Rate → Apply flow (Vercel); calls the ML service directly
+gateway/    Node/Express streaming proxy (optional; the frontend no longer needs it)
 ml-service/ FastAPI (Render)
   core/       LLM layer (Groq → Gemini fallback), optional Supabase
   parsing/    resume_reader (layout audit, column-aware text, ATS views), profile_extractor
   ats/        ATS profiles + company → ATS detector with an evidence trail
   jobs/       live board connectors, India discovery + ranking, network search
-  matching/   skills lexicon (aliases), per-job ATS pass check + tailoring
+  matching/   skills lexicon (aliases, implied skills), per-job ATS pass check + tailoring
+  application/ 1–5 rating, application-form reader, answer filler, tailored resume builder (PDF/DOCX)
   bias_model/, explainability/   Fairness Lab
   data/company_registry.json     the 119 verified company boards
 ```

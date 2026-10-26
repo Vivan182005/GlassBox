@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, MapPin, Clock, ExternalLink, ScanLine, Radar, ArrowUpRight, ClipboardPaste, AlertCircle } from 'lucide-react';
+import { Search, MapPin, Clock, ExternalLink, ScanLine, Radar, ArrowUpRight, ClipboardPaste, AlertCircle, Send, Star, BadgeCheck } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import { AtsBadge, CompanyLogo, Chip, AddInput, Seg, Spinner } from '../components/ui/primitives';
-import { scoreColor, postedLabel, atsColor } from '../lib/format';
+import { scoreColor, postedLabel, atsColor, APPLY_THRESHOLD } from '../lib/format';
+import { RatingBadge } from '../components/ApplyDrawer';
 
 const MAIN_CITIES = ['Bengaluru', 'Hyderabad', 'Pune', 'Mumbai', 'Delhi NCR', 'Chennai', 'Remote'];
 const MORE_CITIES = ['Kolkata', 'Ahmedabad', 'Jaipur', 'Kochi', 'Coimbatore', 'Chandigarh', 'Indore', 'Mysuru'];
@@ -42,8 +43,9 @@ function Scanning({ companies }) {
   );
 }
 
-function JobCard({ job, onCheck, delay }) {
+function JobCard({ job, onCheck, onApply, rating, rating_busy, applied, delay }) {
   const posted = postedLabel(job.posted_days);
+  const recommended = rating ? rating.score >= APPLY_THRESHOLD : null;
   return (
     <div className="job" style={{ animationDelay: `${delay}ms` }}>
       <CompanyLogo domain={job.domain} name={job.company} />
@@ -61,19 +63,34 @@ function JobCard({ job, onCheck, delay }) {
           {job.missing_skills.slice(0, 2).map(s => <span key={s} className="chip sm" title="In the JD, not on your resume">{s}</span>)}
         </div>
         {job.seniority_note && <div className="tiny" style={{ color: 'var(--amber)', marginTop: 8 }}>{job.seniority_note}</div>}
+        {rating && <div className="tiny muted" style={{ marginTop: 6 }}>{rating.label}: {rating.red_flags[0] || rating.dimensions[0].detail}</div>}
       </div>
       <div className="side">
-        <div className="fit" style={{ color: scoreColor(job.fit) }}>{job.fit}<small>fit</small></div>
+        <div className="row" style={{ gap: 10 }}>
+          {rating ? <RatingBadge rating={rating} /> : rating_busy ? <span className="tiny faint">rating…</span> : null}
+          <div className="fit" style={{ color: scoreColor(job.fit) }}>{job.fit}<small>fit</small></div>
+        </div>
         <div className="row" style={{ gap: 6 }}>
           {job.url && <a className="btn sm ghost" href={job.url} target="_blank" rel="noreferrer" aria-label="Open posting"><ExternalLink size={14} /></a>}
-          <button className="btn sm primary" onClick={() => onCheck(job)}><ScanLine size={14} /> Pass check</button>
+          <button className="btn sm" onClick={() => onCheck(job)}><ScanLine size={14} /> Check</button>
+          {applied ? (
+            <span className="chip sm good"><BadgeCheck size={12} /> Applied</span>
+          ) : (
+            <button className={`btn sm ${recommended === false ? '' : 'primary'}`} onClick={() => onApply(job)} disabled={job.source === 'network'}
+              title={recommended === false ? 'Below 4.0: GlassBox suggests skipping' : 'Tailor, answer and apply'}>
+              <Send size={13} /> Apply
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-export default function JobsView({ analysis, roles, setRoles, results, setResults, filters, setFilters, meta, openCheck, notify, goScan }) {
+export default function JobsView({ analysis, roles, setRoles, results, setResults, filters, setFilters, meta, openCheck, openApply,
+  ratings, setRatings, applied, notify, goScan }) {
+  const [rating, setRating] = useState([]);
+  const [onlyGood, setOnlyGood] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [atsFilter, setAtsFilter] = useState(null);
@@ -103,8 +120,10 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
         years_experience: analysis?.profile?.screening_years ?? analysis?.profile?.years_experience ?? 0,
         cities: filters.cities,
         max_age_days: filters.maxAge || null,
+        student: Boolean(analysis?.profile?.student),
       });
       setResults({ ...res, key: JSON.stringify([roles, filters]) });
+      if (analysis) rate((res.jobs || []).filter(j => j.has_description !== false && j.source !== 'network').slice(0, 10));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -120,15 +139,39 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 1-5 rating against the resume; up to 10 jobs per request.
+  async function rate(list) {
+    const todo = list.filter(j => !ratings[j.id]).slice(0, 10);
+    if (!todo.length || !analysis) return;
+    setRating(todo.map(j => j.id));
+    try {
+      const res = await api.rateJobs({
+        resume_text: analysis.resume_text, profile: analysis.profile, audit: analysis.audit, cities: filters.cities,
+        jobs: todo.map(({ matched_skills, missing_skills, ...j }) => j),
+      });
+      setRatings(r => ({ ...r, ...Object.fromEntries(res.ratings.filter(x => x.rating).map(x => [x.id, x.rating])) }));
+    } catch (err) {
+      notify(errorMessage(err), 'error');
+    } finally {
+      setRating([]);
+    }
+  }
+
+  const appliedIds = useMemo(() => new Set((applied || []).map(a => a.id)), [applied]);
+
   const toggleCity = (c) => setFilters(f => ({ ...f, cities: f.cities.includes(c) ? f.cities.filter(x => x !== c) : [...f.cities, c] }));
   const stale = results && results.key !== JSON.stringify([roles, filters]);
 
   const jobs = useMemo(() => {
     let list = results?.jobs || [];
     if (atsFilter) list = list.filter(j => j.ats_name === atsFilter);
+    if (onlyGood) list = list.filter(j => ratings[j.id]?.score >= APPLY_THRESHOLD);
     if (sort === 'new') list = [...list].sort((a, b) => (a.posted_days ?? 999) - (b.posted_days ?? 999));
+    if (sort === 'rating') list = [...list].sort((a, b) => (ratings[b.id]?.score ?? 0) - (ratings[a.id]?.score ?? 0) || b.fit - a.fit);
     return list;
-  }, [results, atsFilter, sort]);
+  }, [results, atsFilter, sort, onlyGood, ratings]);
+  const unrated = jobs.filter(j => !ratings[j.id] && j.source !== 'network');
+  const good = (results?.jobs || []).filter(j => ratings[j.id]?.score >= APPLY_THRESHOLD).length;
 
   return (
     <div className="container page">
@@ -207,8 +250,23 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
               <div className="stat" key={l}><b style={{ fontSize: 22 }}>{v ?? '—'}</b><span>{l}</span></div>
             ))}
             <div className="spacer" />
-            <Seg value={sort} onChange={setSort} options={[{ value: 'fit', label: 'Best fit' }, { value: 'new', label: 'Newest' }]} />
+            <Seg value={sort} onChange={setSort} options={[{ value: 'fit', label: 'Best fit' }, { value: 'rating', label: 'Rating' }, { value: 'new', label: 'Newest' }]} />
           </div>
+
+          {analysis && (
+            <div className="card tight row wrap" style={{ gap: 12, marginBottom: 16 }}>
+              <Star size={17} color="var(--camel)" />
+              <span className="small" style={{ flex: 1, minWidth: 240 }}>
+                {rating.length
+                  ? `Rating ${rating.length} jobs against your resume…`
+                  : <><b>{good}</b> rated {APPLY_THRESHOLD.toFixed(1)}+ out of {Object.keys(ratings).length} rated. GlassBox suggests applying only to those.</>}
+              </span>
+              <button className={`chip sm ${onlyGood ? 'on' : ''}`} onClick={() => setOnlyGood(v => !v)}>{APPLY_THRESHOLD.toFixed(1)}+ only</button>
+              <button className="btn sm" disabled={!!rating.length || !unrated.length} onClick={() => rate(unrated)}>
+                {rating.length ? <Spinner /> : <Star size={13} />} Rate {Math.min(10, unrated.length) || ''} more
+              </button>
+            </div>
+          )}
 
           {stale && <div className="tiny" style={{ color: 'var(--amber)', margin: '0 4px 12px' }}>Filters changed. Hit "Search jobs" to refresh the results.</div>}
 
@@ -235,7 +293,10 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
             </div>
           ) : (
             <div className="stack" style={{ gap: 12 }}>
-              {jobs.slice(0, shown).map((j, i) => <JobCard key={j.id} job={j} onCheck={openCheck} delay={Math.min(i, 10) * 35} />)}
+              {jobs.slice(0, shown).map((j, i) => (
+                <JobCard key={j.id} job={j} onCheck={openCheck} onApply={openApply} rating={ratings[j.id]} rating_busy={rating.includes(j.id)}
+                  applied={appliedIds.has(j.id)} delay={Math.min(i, 10) * 35} />
+              ))}
               {jobs.length > shown && (
                 <button className="btn" style={{ alignSelf: 'center', marginTop: 8 }} onClick={() => setShown(s => s + 30)}>
                   Show more ({jobs.length - shown} left)

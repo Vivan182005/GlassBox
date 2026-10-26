@@ -26,8 +26,9 @@ function Keywords({ rows, title }) {
         {rows.map(r => (
           <span key={r.term} className={`kw ${r.status}`} title={
             r.status === 'matched' ? `Found ${r.mentions}× in your experience/projects` :
-            r.status === 'skills_only' ? 'Only in your skills list, never shown in use' : 'Not on your resume'}>
-            {r.status === 'matched' ? <Check size={13} /> : r.status === 'skills_only' ? <CircleDashed size={13} /> : <XCircle size={13} />}
+            r.status === 'skills_only' ? 'Only in your skills list, never shown in use' :
+            r.status === 'implied' ? `You have it (${(r.via || []).join(', ')}), but not in the job's words` : 'Not on your resume'}>
+            {r.status === 'matched' ? <Check size={13} /> : r.status === 'skills_only' || r.status === 'implied' ? <CircleDashed size={13} /> : <XCircle size={13} />}
             {r.term}
           </span>
         ))}

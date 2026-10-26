@@ -348,10 +348,20 @@ def extract_profile(text: str, layout_audit: Optional[Dict[str, Any]] = None) ->
     if college:
         college_tier = "Tier 1" if any(k in (college.lower() + " ") for k in _TIER1) else "Tier 2/3"
 
+    # Still studying: internships are the realistic search, so they lead and
+    # the full-time titles follow for after graduation.
+    grad = safe_int(edu.get("graduation_year")) or rules["graduation_year"]
+    today = datetime.date.today()
+    student = bool(grad and (grad > today.year or (grad == today.year and today.month < 6)))
+    if student and roles and not any(re.search(r"\bintern", r, re.I) for r in roles):
+        roles = [f"{roles[0]} Intern"] + ([f"{roles[1]} Intern"] if len(roles) > 1 else []) + roles
+        roles = list(dict.fromkeys(roles))
+
     profile = {
         "name": (llm or {}).get("name") or rules["name"],
         "headline": headline,
-        "target_roles": roles[:5],
+        "target_roles": roles[:6],
+        "student": student,
         "location": (llm or {}).get("location") or rules["location"],
         "years_experience": round(years, 1),
         "full_time_years": full_time_years,

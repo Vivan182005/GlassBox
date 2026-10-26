@@ -381,3 +381,29 @@ def term_in_text(term: str, text: str) -> int:
 
 
 _STOP = {"and", "the", "with", "for", "of", "in", "on", "to", "a", "an", "or", "using", "experience", "knowledge", "strong", "skills", "skill", "ability", "working", "good", "understanding", "hands", "proficiency"}
+
+
+# A skill the resume demonstrates through a more specific one. Literal ATS
+# keyword search still misses these, so they count as "implied": the
+# candidate has the skill but should write it out in the job's own words.
+IMPLIED: Dict[str, List[str]] = {
+    "SQL": ["MySQL", "PostgreSQL", "SQLite", "Oracle Database", "Microsoft SQL Server", "BigQuery", "Snowflake", "HiveQL"],
+    "REST APIs": ["FastAPI", "Express", "Django", "Flask", "Spring Boot", "Node.js"],
+    "OOP": ["Java", "C++", "C#"],
+    "JavaScript": ["TypeScript", "React", "Node.js", "Next.js"],
+    "Machine Learning": ["PyTorch", "TensorFlow", "Scikit-learn", "Deep Learning"],
+    "Deep Learning": ["PyTorch", "TensorFlow"],
+    "Cloud": ["AWS", "Azure", "GCP"],
+    "Version Control": ["Git"],
+    "Data Analysis": ["Pandas", "SQL", "Excel"],
+    "Data Visualization": ["Tableau", "Power BI", "Matplotlib"],
+    "Databases": ["MySQL", "PostgreSQL", "MongoDB", "SQLite"],
+    "NoSQL": ["MongoDB", "Redis", "Cassandra", "DynamoDB", "Firebase"],
+    "Web Development": ["React", "HTML", "CSS", "Next.js"],
+}
+
+
+def implied_by(term: str, text: str) -> List[str]:
+    """Skills in the text that demonstrate `term` without naming it."""
+    canonical = canonicalize(term)
+    return [s for s in IMPLIED.get(canonical, []) if term_in_text(s, text) > 0]

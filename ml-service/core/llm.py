@@ -69,30 +69,59 @@ def _parse_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _call_groq(system: str, user: str, json_mode: bool, max_tokens: int, timeout: float) -> Optional[str]:
-    key = _groq_key()
-    if not key:
-        return None
+# Each Groq model has its own rate limit, so the smaller model is a real
+# fallback when the large one hits its tokens-per-minute cap.
+GROQ_FALLBACK_MODEL = os.environ.get("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
+
+
+def _retry_after(r: requests.Response) -> float:
+    try:
+        return float(r.headers.get("retry-after") or 0)
+    except ValueError:
+        m = re.search(r"try again in ([\d.]+)s", r.text)
+        return float(m.group(1)) if m else 0.0
+
+
+def _groq_once(model: str, system: str, user: str, json_mode: bool, max_tokens: int, timeout: float, key: str):
     body: Dict[str, Any] = {
-        "model": GROQ_MODEL,
+        "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "temperature": 0.1,
         "max_completion_tokens": max_tokens,
     }
     if json_mode:
         body["response_format"] = {"type": "json_object"}
-    if GROQ_MODEL.startswith("openai/gpt-oss"):
+    if model.startswith("openai/gpt-oss"):
         body["reasoning_effort"] = "low"
-    try:
-        r = requests.post(GROQ_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=timeout)
-        if r.status_code != 200:
-            _last_error["groq"] = f"{r.status_code}: {r.text[:160]}"
-            return None
-        _last_error.pop("groq", None)
-        return r.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        _last_error["groq"] = str(e)[:160]
+    return requests.post(GROQ_URL, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=timeout)
+
+
+def _call_groq(system: str, user: str, json_mode: bool, max_tokens: int, timeout: float) -> Optional[str]:
+    key = _groq_key()
+    if not key:
         return None
+    models = [GROQ_MODEL] + ([GROQ_FALLBACK_MODEL] if GROQ_FALLBACK_MODEL and GROQ_FALLBACK_MODEL != GROQ_MODEL else [])
+    for model in models:
+        for attempt in range(2):
+            try:
+                r = _groq_once(model, system, user, json_mode, max_tokens, timeout, key)
+            except Exception as e:
+                _last_error["groq"] = str(e)[:160]
+                break
+            if r.status_code == 200:
+                _last_error.pop("groq", None)
+                content = r.json()["choices"][0]["message"].get("content")
+                if content:
+                    return content
+                break
+            _last_error["groq"] = f"{model} {r.status_code}: {r.text[:160]}"
+            wait = _retry_after(r) if r.status_code == 429 else 0
+            # A short per-minute wait is worth it; a long one means try the next model.
+            if attempt == 0 and 0 < wait <= 8:
+                time.sleep(wait + 0.3)
+                continue
+            break
+    return None
 
 
 def _call_gemini(system: str, user: str, json_mode: bool, max_tokens: int, timeout: float) -> Optional[str]:

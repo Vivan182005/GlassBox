@@ -50,6 +50,9 @@ export const api = {
   tailor: (body) => http.post('/api/check/tailor', body).then(r => r.data),
   lookupCompany: (body) => http.post('/api/company/lookup', body).then(r => r.data),
   confirmCompany: (body) => http.post('/api/company/confirm', body).then(r => r.data),
+  rateJobs: (body) => http.post('/api/apply/rate', body).then(r => r.data),
+  prepareApplication: (body) => http.post('/api/apply/prepare', body).then(r => r.data),
+  resumeFile: (ext, body) => http.post(`/api/apply/resume.${ext}`, body, { responseType: 'blob' }).then(r => r.data),
 };
 
 export default http;
