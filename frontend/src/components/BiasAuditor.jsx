@@ -83,7 +83,7 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
           </div>
 
           {/* Model Bias Mitigation Pass Toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.3)', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--surface)', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Model Mode:</span>
             <button
               onClick={() => setUseMitigated(false)}
@@ -94,8 +94,8 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
                 borderRadius: '4px',
                 border: 'none',
                 cursor: 'pointer',
-                background: !useMitigated ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
-                color: !useMitigated ? '#fca5a5' : 'var(--text-muted)'
+                background: !useMitigated ? 'rgba(168, 68, 47, 0.12)' : 'transparent',
+                color: !useMitigated ? 'var(--brick)' : 'var(--text-muted)'
               }}
             >
               Unmitigated
@@ -109,7 +109,7 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
                 borderRadius: '4px',
                 border: 'none',
                 cursor: 'pointer',
-                background: useMitigated ? 'rgba(34, 211, 238, 0.2)' : 'transparent',
+                background: useMitigated ? 'rgba(166, 124, 82, 0.15)' : 'transparent',
                 color: useMitigated ? 'var(--cyan-accent)' : 'var(--text-muted)'
               }}
             >
@@ -119,7 +119,7 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
         </div>
 
         {/* Pinned Ground-Truth Bias Disclosure */}
-        <div style={{ marginTop: '10px', background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+        <div style={{ marginTop: '10px', background: 'var(--surface)', padding: '10px 14px', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
           🔒 <strong>Pinned Ground-Truth Bias Disclosure:</strong> {fairnessResult?.ground_truth_bias_disclosure || "This audited model was intentionally trained with injected bias (Tier-1 college boost + employment gap penalties) to validate that the explainability layer isolates algorithmic unfairness."}
         </div>
       </div>
@@ -127,15 +127,15 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
       {/* Auto-Fill Notice Banner */}
       {autoFillSource && (
         <div style={{
-          background: autoFillSource === 'your_resume' ? 'rgba(34, 211, 238, 0.1)' : 'rgba(99, 102, 241, 0.1)',
-          border: `1px solid ${autoFillSource === 'your_resume' ? 'rgba(34, 211, 238, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`,
+          background: autoFillSource === 'your_resume' ? 'rgba(166, 124, 82, 0.08)' : 'var(--surface)',
+          border: `1px solid ${autoFillSource === 'your_resume' ? 'rgba(166, 124, 82, 0.3)' : 'var(--border)'}`,
           padding: '10px 16px',
           borderRadius: '8px',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
           fontSize: '0.82rem',
-          color: autoFillSource === 'your_resume' ? 'var(--cyan-accent)' : '#a5b4fc'
+          color: autoFillSource === 'your_resume' ? 'var(--cyan-accent)' : 'var(--text-2)'
         }}>
           <UserCheck size={16} />
           {autoFillSource === 'your_resume' ? (
@@ -150,8 +150,8 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
       {auditResult?.plain_language_summary && (
         <div className="glass-panel" style={{
           padding: '24px',
-          background: isAccepted ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-          border: `1px solid ${isAccepted ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
+          background: isAccepted ? 'rgba(63, 93, 69, 0.08)' : 'rgba(168, 68, 47, 0.08)',
+          border: `1px solid ${isAccepted ? 'rgba(63, 93, 69, 0.3)' : 'rgba(168, 68, 47, 0.3)'}`
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -404,10 +404,10 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
               <div style={{ height: '240px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={auditResult.shap_waterfall.waterfall} layout="vertical" margin={{ top: 5, right: 20, left: 90, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e6dcc8" />
                     <XAxis type="number" stroke="var(--text-muted)" fontSize={10} />
                     <YAxis type="category" dataKey="display_name" stroke="var(--text-secondary)" fontSize={10} />
-                    <Tooltip contentStyle={{ background: '#111827', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
+                    <Tooltip contentStyle={{ background: '#fffcf5', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
                     <Bar dataKey="shap_value" radius={[0, 4, 4, 0]}>
                       {auditResult.shap_waterfall.waterfall.map((entry, idx) => (
                         <Cell key={`cell-${idx}`} fill={entry.shap_value > 0 ? 'var(--signal-green)' : 'var(--signal-red)'} />
@@ -432,11 +432,11 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
               <div style={{ height: '240px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={auditResult.global_shap} layout="vertical" margin={{ top: 5, right: 20, left: 90, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e6dcc8" />
                     <XAxis type="number" stroke="var(--text-muted)" fontSize={10} />
                     <YAxis type="category" dataKey="display_name" stroke="var(--text-secondary)" fontSize={10} />
-                    <Tooltip contentStyle={{ background: '#111827', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
-                    <Bar dataKey="importance" fill="#4b5563" radius={[0, 4, 4, 0]} />
+                    <Tooltip contentStyle={{ background: '#fffcf5', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
+                    <Bar dataKey="importance" fill="#c0a080" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -463,8 +463,8 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
                   const isPos = rule.weight > 0;
                   return (
                     <div key={idx} style={{
-                      background: isPos ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                      border: `1px solid ${isPos ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)'}`,
+                      background: isPos ? 'rgba(63, 93, 69, 0.08)' : 'rgba(168, 68, 47, 0.08)',
+                      border: `1px solid ${isPos ? 'rgba(63, 93, 69, 0.25)' : 'rgba(168, 68, 47, 0.25)'}`,
                       padding: '8px 12px',
                       borderRadius: '6px',
                       display: 'flex',
@@ -515,10 +515,10 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
                 <div style={{ height: '220px' }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={auditResult.ice_plot.ice_curve}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e6dcc8" />
                       <XAxis dataKey="value" stroke="var(--text-muted)" fontSize={10} />
                       <YAxis stroke="var(--text-muted)" fontSize={10} domain={[0, 1]} />
-                      <Tooltip contentStyle={{ background: '#111827', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
+                      <Tooltip contentStyle={{ background: '#fffcf5', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
                       <Line type="monotone" dataKey="acceptance_probability" stroke="var(--signal-green)" strokeWidth={2} dot={{ r: 3 }} />
                     </LineChart>
                   </ResponsiveContainer>
@@ -533,7 +533,7 @@ export default function BiasAuditor({ candidateFeatures, setCandidateFeatures, a
 
       {/* Algorithmic Fairness Audit Card */}
       {fairnessResult && (
-        <div className="glass-panel" style={{ padding: '20px 24px', border: `1px solid ${fairnessResult.passes_80_percent_rule ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}` }}>
+        <div className="glass-panel" style={{ padding: '20px 24px', border: `1px solid ${fairnessResult.passes_80_percent_rule ? 'rgba(63, 93, 69, 0.3)' : 'rgba(168, 68, 47, 0.3)'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
               <ShieldAlert size={18} /> EEOC Adverse Impact Audit Finding

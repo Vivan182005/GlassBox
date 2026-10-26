@@ -5,7 +5,7 @@ import { Toast, Spinner } from './components/ui/primitives';
 import ScanView from './views/ScanView';
 import JobsView, { cityFromLocation } from './views/JobsView';
 import CompanyView from './views/CompanyView';
-import HalftoneWordmarkFooter from '@/components/ui/halftone-wordmark-footer';
+import Footer from './components/Footer';
 import { api } from './api';
 import { storage } from './lib/format';
 
@@ -122,21 +122,7 @@ export default function App() {
           </Suspense>
         )}
       </main>
-      <HalftoneWordmarkFooter
-        wordmark="glassbox"
-        label="GlassBox · ©2026"
-        meta="Simulated ATS behaviour · not affiliated with any vendor"
-        columns={FOOTER_COLUMNS}
-        palette={{ background: '#05060a', ink: '#eef1f8', warm: '#2fd8f0' }}
-        fontFamily="'Geist', 'Inter', system-ui, sans-serif"
-        fontWeight={700}
-        monoFamily="'Geist Mono', 'JetBrains Mono', ui-monospace, monospace"
-        dotGap={6}
-        radius={90}
-        crop={0.22}
-        height="clamp(380px, 46vw, 540px)"
-        className="gb-footer"
-      />
+      <Footer columns={FOOTER_COLUMNS} />
       {checkJob && <CheckDrawer job={checkJob} analysis={analysis} onClose={() => setCheckJob(null)} notify={notify} goScan={() => setView('scan')} />}
       <Toast message={toast?.message} kind={toast?.kind} onClose={() => setToast(null)} />
     </>

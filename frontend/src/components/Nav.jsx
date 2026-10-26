@@ -14,8 +14,8 @@ export default function Nav({ view, setView, health }) {
     <header className="nav">
       <div className="container nav-inner">
         <button className="brand" onClick={() => setView('scan')} aria-label="GlassBox home">
-          <span className="brand-mark" />
           GlassBox
+          <small>ATS reality check</small>
         </button>
         <nav className="tabs" aria-label="Sections">
           {TABS.map(t => (

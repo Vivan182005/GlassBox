@@ -1,0 +1,13 @@
+{
+  "name": "GlassBox",
+  "stack": { "framework": "react", "bundler": "vite", "styling": "plain CSS tokens (frontend/src/index.css)" },
+  "decisions": [
+    {
+      "date": "2026-10-26",
+      "decision": "Old-money editorial look: paper/cream backgrounds, warm brown ink, camel accent, beige hairlines, heritage signal colours (forest / ochre / brick). Clean and quiet: no gradients, glows, glass or neon.",
+      "source": "21st theme 'Vintage Paper' by serafimcloud (https://21st.dev/community/themes/vintage-paper), adapted to the project's existing CSS tokens",
+      "typography": { "display": "Libre Baskerville", "body": "Lora", "labels": "IBM Plex Mono (uppercase, tracked)" },
+      "rejected": ["Halftone wordmark footer (too busy)", "Elegant Luxury theme (red/orange)", "432 Editorial theme (navy)"]
+    }
+  ]
+}

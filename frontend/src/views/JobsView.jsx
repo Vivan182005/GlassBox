@@ -51,8 +51,8 @@ function JobCard({ job, onCheck, delay }) {
         </div>
         <div className="row wrap" style={{ gap: 6, marginTop: 10 }}>
           {job.ats_name ? <AtsBadge id={job.ats_id} name={job.ats_name} small /> : <span className="badge badge-neutral">ATS unknown</span>}
-          {job.matched_skills.slice(0, 6).map(s => <span key={s} className="chip sm good">{s}</span>)}
-          {job.missing_skills.slice(0, 3).map(s => <span key={s} className="chip sm" title="In the JD, not on your resume">{s}</span>)}
+          {job.matched_skills.slice(0, 4).map(s => <span key={s} className="chip sm good">{s}</span>)}
+          {job.missing_skills.slice(0, 2).map(s => <span key={s} className="chip sm" title="In the JD, not on your resume">{s}</span>)}
         </div>
         {job.seniority_note && <div className="tiny" style={{ color: 'var(--amber)', marginTop: 8 }}>{job.seniority_note}</div>}
       </div>

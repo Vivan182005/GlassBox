@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { atsColor, scoreColor, initials } from '../../lib/format';
 
-export function Ring({ value = 0, size = 132, stroke = 10, label, color, sub }) {
+export function Ring({ value = 0, size = 132, stroke = 5, label, color, sub }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const [shown, setShown] = useState(0);
@@ -14,11 +14,10 @@ export function Ring({ value = 0, size = 132, stroke = 10, label, color, sub }) 
   return (
     <div className="ring" style={{ width: size, height: size }}>
       <svg width={size} height={size}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e6dcc8" strokeWidth={stroke} />
         <circle
-          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={col} strokeWidth={stroke} strokeLinecap="round"
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={col} strokeWidth={stroke} strokeLinecap="butt"
           strokeDasharray={c} strokeDashoffset={c * (1 - Math.max(0, Math.min(100, shown)) / 100)}
-          style={{ filter: `drop-shadow(0 0 10px ${col})` }}
         />
       </svg>
       <div className="val">
@@ -111,7 +110,7 @@ export function AddInput({ placeholder, onAdd }) {
   return (
     <input
       className="input"
-      style={{ height: 30, width: 170, borderRadius: 999, fontSize: 13 }}
+      style={{ height: 30, width: 170, fontSize: 14 }}
       placeholder={placeholder}
       value={v}
       onChange={e => setV(e.target.value)}

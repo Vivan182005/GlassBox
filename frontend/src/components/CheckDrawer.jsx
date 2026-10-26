@@ -230,7 +230,7 @@ export default function CheckDrawer({ job, analysis, onClose, notify, goScan }) 
                     </p>
                     <div className="stack" style={{ gap: 9, marginTop: 14 }}>
                       {BREAKDOWN.map(([k, label]) => (
-                        <div key={k} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 34px', gap: 10, alignItems: 'center' }}>
+                        <div key={k} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 34px', gap: 10, alignItems: 'center' }}>
                           <span className="small muted">{label}</span>
                           <Bar value={result.breakdown[k]} />
                           <span className="mono small" style={{ textAlign: 'right' }}>{result.breakdown[k]}</span>

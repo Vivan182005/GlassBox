@@ -143,7 +143,7 @@ function ProfileCard({ profile, audit }) {
   return (
     <div className="card">
       <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
-        <div className="logo fallback" style={{ width: 52, height: 52, borderRadius: 16, fontSize: 18 }}>{initials(profile.name || 'You')}</div>
+        <div className="logo fallback" style={{ width: 52, height: 52, borderRadius: '50%', fontSize: 18 }}>{initials(profile.name || 'You')}</div>
         <div style={{ minWidth: 0 }}>
           <div className="h3" style={{ fontSize: 19 }}>{profile.name || 'Name not found'}</div>
           <div className="muted small">{profile.headline || 'Role not detected'}</div>
