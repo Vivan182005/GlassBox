@@ -17,10 +17,12 @@ export function cityFromLocation(loc) {
 function Scanning({ companies }) {
   const [i, setI] = useState(0);
   const [pct, setPct] = useState(4);
+  const [secs, setSecs] = useState(0);
   useEffect(() => {
     const t1 = setInterval(() => setI(x => x + 1), 700);
-    const t2 = setInterval(() => setPct(p => Math.min(94, p + (100 - p) * 0.06)), 400);
-    return () => { clearInterval(t1); clearInterval(t2); };
+    const t2 = setInterval(() => setPct(p => Math.min(94, p + (100 - p) * 0.03)), 400);
+    const t3 = setInterval(() => setSecs(x => x + 1), 1000);
+    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); };
   }, []);
   const c = companies.length ? companies[i % companies.length] : null;
   return (
@@ -31,7 +33,11 @@ function Scanning({ companies }) {
         {c && <span key={i}>{c.name} <span className="faint">· {c.ats_name}</span></span>}
       </div>
       <div className="bar" style={{ maxWidth: 380, margin: '18px auto 0' }}><i style={{ width: `${pct}%`, background: 'var(--grad)' }} /></div>
-      <p className="tiny faint" style={{ marginTop: 12 }}>The first search reads every board (~20s). Searches after that are cached and near-instant.</p>
+      <p className="tiny faint" style={{ marginTop: 12 }}>
+        {secs < 25
+          ? 'The first search reads every board (~20–40s). Searches after that are cached and near-instant.'
+          : `${secs}s · Still reading boards and job descriptions. If the free server was asleep it needs a minute to wake; hang on.`}
+      </p>
     </div>
   );
 }
