@@ -88,7 +88,7 @@ def rate(job: Dict[str, Any], check: Dict[str, Any], cities: Optional[List[str]]
     if age is not None and age > 45:
         flags.append({"text": f"Posted {age} days ago, so it may already be filled.", "penalty": 0.4})
     for k in check.get("knockouts", []):
-        if k["type"] == "screening_question" and re.search(r"citizen|clearance|visa|sponsor|relocat|night shift|notice", k["detail"], re.I):
+        if k["type"] == "screening_question" and re.search(r"clearance|relocat|night shift|notice period|immediate join", k["detail"], re.I):
             flags.append({"text": f"Screening requirement: {k['detail']}", "penalty": 0.0})
     if must_ratio < 0.5:
         flags.append({"text": f"Your resume covers few of this job's required skills ({check['coverage']['must_matched']}/{check['coverage']['must_total']}).", "penalty": 0.0})

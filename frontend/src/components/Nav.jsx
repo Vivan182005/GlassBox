@@ -1,12 +1,11 @@
 import React from 'react';
-import { ScanLine, Briefcase, Radar, Scale, Send } from 'lucide-react';
+import { ScanLine, Briefcase, Radar, Send } from 'lucide-react';
 
 const TABS = [
   { id: 'scan', label: 'Resume X-ray', step: '01', icon: ScanLine },
   { id: 'jobs', label: 'Jobs in India', step: '02', icon: Briefcase },
   { id: 'applications', label: 'Applications', step: '03', icon: Send },
   { id: 'company', label: 'ATS Lookup', icon: Radar },
-  { id: 'fairness', label: 'Fairness Lab', icon: Scale },
 ];
 
 export default function Nav({ view, setView, health }) {

@@ -53,6 +53,9 @@ export const api = {
   rateJobs: (body) => http.post('/api/apply/rate', body).then(r => r.data),
   prepareApplication: (body) => http.post('/api/apply/prepare', body).then(r => r.data),
   resumeFile: (ext, body) => http.post(`/api/apply/resume.${ext}`, body, { responseType: 'blob' }).then(r => r.data),
+  resumeFileWithHeaders: (ext, body) => http.post(`/api/apply/resume.${ext}`, body, { responseType: 'blob' })
+    .then(r => ({ blob: r.data, headers: r.headers })),
+  resumeTex: (body) => http.post('/api/apply/resume.tex', body).then(r => r.data),
 };
 
 export default http;

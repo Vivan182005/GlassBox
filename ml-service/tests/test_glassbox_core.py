@@ -14,8 +14,6 @@ from matching.ats_check import years_required, degree_rank, run_check
 from matching.skills_lexicon import find_skills, term_in_text, canonicalize
 from parsing.profile_extractor import compute_experience_years, detect_degree, experience_from_entries, _split_roles, _work_section
 from parsing.resume_reader import read_text, audit, parse_score, detect_sections
-from explainability.fairness import calculate_fairness_metrics, calculate_mitigated_fairness_metrics
-from explainability.explainer import explainer_instance
 
 RESUME = """Arjun Mehta
 Bengaluru | arjun@example.com | +91 91234 56789
@@ -154,6 +152,41 @@ class TestFresherExperience(unittest.TestCase):
         self.assertEqual(find_skills("Sentence Transformers, n8n onboarding, faster monitoring"), {})
 
 
+class TestLatex(unittest.TestCase):
+    def test_section_plan_keeps_own_headings(self):
+        from application.latex import section_plan
+        plan = section_plan("NAME\nAI Product | APM\n" + "word " * 50 + "\nSkills\nx\nAI Product Portfolio\ny\n"
+                            "Experience\nBosch — Data Analyst Intern\nEducation & Certifications\nVIT")
+        self.assertEqual([s["heading"] for s in plan["order"]], ["Skills", "AI Product Portfolio", "Experience", "Education & Certifications"])
+        self.assertEqual(plan["order"][3]["keys"], ["education", "certifications"])
+        self.assertTrue(plan["untitled_summary"])
+
+    def test_render_escapes_and_styles(self):
+        from application.latex import render
+        tex = render({"skills": [{"group": "Data & AI", "items": ["C++", "R&D"]}],
+                      "experience": [{"company": "A_B", "title": "Intern", "dates": "2024", "bullets": [{"text": "Cut cost 50% & time", "original": "x"}]}]},
+                     {"name": "Riya Sen", "contact": []},
+                     {"family": "carlito", "paper": "a4", "base_pt": 10.5, "bullet": "•", "heading": {"color": "#1F3D6B", "rule": True},
+                      "name": {"upper": True, "align": "left"}, "muted_color": "#5A6473"},
+                     {"order": [{"keys": ["experience"], "heading": "Work"}, {"keys": ["skills"], "heading": "Skills"}], "untitled_summary": False},
+                     {"email": "r@x.in"})
+        self.assertIn("carlito", tex)
+        self.assertIn("a4paper", tex)
+        self.assertIn(r"50\% \& time", tex)
+        self.assertIn(r"A\_B", tex)
+        self.assertIn("RIYA SEN", tex)
+        self.assertLess(tex.index("section*{Work}"), tex.index("section*{Skills}"))
+
+    def test_apply_to_own_tex(self):
+        from application.latex import apply_to_tex
+        tex = "\\begin{itemize}\n\\item Built \\textbf{Tableau} dashboards for 4 teams.\n\\item Other.\n\\end{itemize}"
+        out, notes = apply_to_tex(tex, {"experience": [{"bullets": [
+            {"original": "Built Tableau dashboards for 4 teams.", "text": "Built data visualization dashboards in Tableau for 4 teams."}]}]})
+        self.assertIn("data visualization dashboards", out)
+        self.assertIn("\\item Other.", out)
+        self.assertEqual(notes, [])
+
+
 class TestApplyFlow(unittest.TestCase):
     CHECK = {"score": 70, "verdict": "pass", "breakdown": {"keywords": 70},
              "coverage": {"must_matched": 7, "must_total": 8, "nice_matched": 3, "nice_total": 4},
@@ -195,30 +228,13 @@ class TestApplyFlow(unittest.TestCase):
         src = "Python, PostgreSQL. Built dashboards used by 4 teams."
         data = _normalize({"skills": [{"group": "x", "items": ["Python", "SQL", "Power BI"]}],
                            "experience": [{"company": "Acme", "bullets": []}],
-                           "projects": ["Dashboards", {"name": "P", "bullets": [
+                           "projects": [{"name": "P", "bullets": [
                                {"text": "Built dashboards used by 40 teams", "source": "Built dashboards used by 4 teams."}]}]})
         notes = _guard(data, src)
         self.assertEqual(data["skills"][0]["items"], ["Python", "SQL"])  # SQL is implied by PostgreSQL
         self.assertEqual(data["experience"], [])  # Acme isn't on the resume
-        self.assertEqual(data["projects"][1]["bullets"], ["Built dashboards used by 4 teams."])
+        self.assertEqual([b["text"] for b in data["projects"][0]["bullets"]], ["Built dashboards used by 4 teams."])
         self.assertTrue(any("Power BI" in n for n in notes))
-
-
-class TestFairnessLab(unittest.TestCase):
-    def test_fairness_metrics(self):
-        metrics = calculate_fairness_metrics()
-        self.assertIn("disparate_impact_ratio", metrics)
-        self.assertIsInstance(metrics["disparate_impact_ratio"], float)
-        mit = calculate_mitigated_fairness_metrics()
-        self.assertIn("mitigated", mit)
-
-    def test_shap_lime_agreement(self):
-        feat = {"years_experience": 10.0, "skill_count": 12, "college_tier": "Tier 1", "employment_gap_months": 0,
-                "has_internship": True, "gpa": 3.9, "project_count": 5, "graduation_year": 2023, "has_referral": True,
-                "demographic_proxy": "Group A"}
-        waterfall = explainer_instance.get_candidate_shap_waterfall(feat)["waterfall"]
-        lime = explainer_instance.get_lime_explanation(feat)["lime_rules"]
-        self.assertGreaterEqual(explainer_instance.compute_shap_lime_agreement(waterfall, lime), 0.5)
 
 
 if __name__ == "__main__":

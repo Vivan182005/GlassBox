@@ -32,3 +32,9 @@ frontend/dist-ssr/
 # Runtime caches
 ml-service/data/ats_lookup_cache.json
 .claude/settings.local.json
+
+# Cached JD keyword analyses (rebuilt at runtime)
+ml-service/data/jd_analysis_cache.json
+
+# LaTeX engine (installed by ml-service/bin/install_tectonic.sh)
+.tectonic/

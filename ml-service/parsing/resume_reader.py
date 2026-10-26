@@ -151,12 +151,116 @@ def _column_text(words: List[Dict[str, Any]], gutter: float) -> str:
     return "\n".join(_line_text(l) for l in ordered)
 
 
+_HEADING_WORDS = re.compile(r"^(summary|profile|objective|skills?|technical|experience|employment|work|internships?|projects?|portfolio|"
+                            r"education|academic|certifications?|achievements?|awards|publications|leadership|activities)$", re.I)
+
+
+def _hex(color: Any) -> Optional[str]:
+    if color is None:
+        return None
+    c = list(color) if isinstance(color, (list, tuple)) else [color]
+    if len(c) == 1:
+        c = c * 3
+    if len(c) == 4:  # CMYK
+        k = c[3]
+        c = [(1 - c[0]) * (1 - k), (1 - c[1]) * (1 - k), (1 - c[2]) * (1 - k)]
+    try:
+        return "#" + "".join(f"{max(0, min(255, round(float(v) * 255))):02X}" for v in c[:3])
+    except (TypeError, ValueError):
+        return None
+
+
+def _font_family(fontname: str) -> str:
+    f = re.sub(r"^[A-Z]{6}\+", "", fontname or "")
+    table = [
+        (r"^(CM|LM|SF|CMU|LMRoman|LMSans)", "computer_modern"), (r"Crlt|Carlito|Calibri", "carlito"),
+        (r"Lato", "lato"), (r"SourceSans|Source Sans", "source_sans"), (r"Roboto", "roboto"), (r"OpenSans|Open Sans", "open_sans"),
+        (r"FiraSans|Fira Sans", "fira_sans"), (r"Arial|Helvetica|Arimo|LiberationSans|NimbusSan", "helvetica"),
+        (r"Times|Termes|LiberationSerif|NimbusRom|Tinos", "times"), (r"Garamond|EBGaramond", "garamond"),
+        (r"Palatino|Pagella|URWPalladio", "palatino"), (r"Charter|XCharter", "charter"), (r"Georgia", "charter"),
+        (r"Cambria|Caladea", "caladea"), (r"Montserrat", "montserrat"), (r"Raleway", "raleway"),
+    ]
+    for pat, fam in table:
+        if re.search(pat, f, re.I):
+            return fam
+    return "computer_modern"
+
+
+def _visual_style(pdf) -> Dict[str, Any]:
+    """The original's typography and layout, so a tailored version can be
+    typeset to look like the same document."""
+    page = pdf.pages[0]
+    chars = [c for c in page.chars if c.get("text", "").strip()]
+    if not chars:
+        return {}
+    width, height = float(page.width), float(page.height)
+    counts: Dict[Tuple[str, float], int] = {}
+    for c in chars:
+        k = (re.sub(r"^[A-Z]{6}\+", "", c["fontname"]), round(c["size"] * 2) / 2)
+        counts[k] = counts.get(k, 0) + 1
+    base_font, base_size = max(counts, key=counts.get)
+    colors: Dict[str, int] = {}
+    for c in chars:
+        h = _hex(c.get("non_stroking_color"))
+        if h:
+            colors[h] = colors.get(h, 0) + 1
+    body_color = max(colors, key=colors.get) if colors else "#000000"
+
+    top_chars = [c for c in chars if c["top"] < height * 0.2]
+    big = max(top_chars or chars, key=lambda c: c["size"])
+    name_chars = [c for c in top_chars if abs(c["size"] - big["size"]) < 0.6 and abs(c["top"] - big["top"]) < 4]
+    nx0, nx1 = min(c["x0"] for c in name_chars), max(c["x1"] for c in name_chars)
+    name_text = "".join(c["text"] for c in name_chars)
+    words = page.extract_words(x_tolerance=X_TOL, extra_attrs=["fontname", "size", "non_stroking_color"])
+    heads = [w for w in words if _HEADING_WORDS.match(w["text"]) and (w["size"] > base_size + 0.4 or "Bold" in w["fontname"] or "BX" in w["fontname"])
+             and w["x0"] < width * 0.25]
+    head = heads[0] if heads else None
+    rules = [l for l in page.lines + page.rects if abs(l["top"] - l["bottom"]) < 2.5 and (l["x1"] - l["x0"]) > width * 0.55]
+    bullet_counts: Dict[str, int] = {}
+    for w in words:
+        if w["text"] in ("•", "–", "-", "◦", "▪", "‣", "●", "■", "—"):
+            bullet_counts[w["text"]] = bullet_counts.get(w["text"], 0) + 1
+    link_color = None
+    for link in page.hyperlinks or []:
+        inside = [c for c in chars if link["x0"] - 1 <= c["x0"] <= link["x1"] + 1 and link["top"] - 2 <= c["top"] <= link["bottom"] + 2]
+        if inside:
+            link_color = _hex(inside[0].get("non_stroking_color"))
+            break
+    contact_line = next((l for l in (" ".join(w["text"] for w in words if abs(w["top"] - t) < 3) for t in sorted({round(w["top"]) for w in words})[:8])
+                         if "@" in l), "")
+    sep = next((s for s in ("|", "—", "•", "·", "/") if f" {s} " in contact_line or s in contact_line.replace("@", "")), "|")
+    accent = _hex(head.get("non_stroking_color")) if head else None
+    muted = sorted((c for c in colors if c not in (body_color, accent, link_color)), key=lambda c: -colors[c])
+    return {
+        "family": _font_family(base_font), "font": base_font, "base_pt": base_size,
+        "paper": "a4" if abs(width - 595) < 12 else "letter",
+        "margins_pt": {"left": round(min(c["x0"] for c in chars)), "right": round(width - max(c["x1"] for c in chars)),
+                       "top": round(min(c["top"] for c in chars))},
+        "body_color": body_color,
+        "name": {"size_pt": round(big["size"], 1), "color": _hex(big.get("non_stroking_color")), "upper": name_text.isupper(),
+                 "bold": bool(re.search(r"Bold|BX|Black|Heavy|Semibold", big["fontname"])),
+                 "align": "center" if abs((nx0 + nx1) / 2 - width / 2) < width * 0.06 else "left",
+                 "beside": " ".join(w["text"] for w in words if abs(w["top"] - big["top"]) < big["size"] and w["x0"] > nx1 + 20
+                                     and w["size"] < big["size"] * 0.8)[:60] or None},
+        "heading": {"size_pt": round(head["size"], 1) if head else base_size + 2, "color": accent, "upper": bool(head and head["text"].isupper()),
+                    "rule": bool(rules), "rule_color": _hex(rules[0].get("stroking_color")) if rules else None,
+                    "rule_pt": round(float(rules[0].get("linewidth") or 0.4), 2) if rules else 0.4},
+        "bullet": max(bullet_counts, key=bullet_counts.get) if bullet_counts else "•",
+        "link_color": link_color, "muted_color": muted[0] if muted else None,
+        "contact_sep": sep,
+    }
+
+
 def _read_pdf(data: bytes) -> Dict[str, Any]:
     reading, naive = [], []
     layout = {"pages": 0, "column_pages": 0, "tables": 0, "images": 0, "icons": 0, "photo": False,
               "margin_contact": [], "fonts": set(), "cid_garbage": False, "links": []}
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         layout["pages"] = len(pdf.pages)
+        try:
+            layout["style"] = _visual_style(pdf)
+        except Exception:
+            layout["style"] = {}
         for page in pdf.pages:
             # LaTeX and tightly kerned PDFs put ~2pt between words and emit no
             # space characters; pdfplumber's default 3pt tolerance glues them
@@ -401,7 +505,7 @@ def audit(read: Dict[str, Any]) -> Dict[str, Any]:
         "icons": lay.get("icons", 0) + pua, "text_boxes": lay.get("text_boxes", 0), "photo": lay.get("photo", False),
         "margin_contact": lay.get("margin_contact", []), "cid_garbage": lay.get("cid_garbage", False), "scanned": scanned,
         "fonts": lay.get("fonts", []), "sections": sections["found"], "nonstandard_sections": sections["nonstandard"],
-        "contact": contact, "personal_details": personal, "bullets": len(bullet_lines), "quantified_bullets": len(quantified),
+        "contact": contact, "personal_details": personal, "style": lay.get("style") or {}, "bullets": len(bullet_lines), "quantified_bullets": len(quantified),
         "issues": issues,
     }
 

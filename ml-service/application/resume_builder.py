@@ -8,7 +8,9 @@ The result is re-scored with the same ATS check, so the before/after score
 is measured, not promised. Output is single column, standard headings,
 plain fonts and full URLs: everything the X-ray penalises is designed out.
 """
+import difflib
 import io
+import json
 import re
 from typing import Any, Dict, List, Optional
 
@@ -16,31 +18,42 @@ from core.llm import llm_json
 from matching.ats_check import run_check
 from matching.skills_lexicon import implied_by, term_in_text
 from parsing.resume_reader import audit, read_text
+from application import latex
 
 SECTION_ORDER = ["summary", "skills", "experience", "projects", "education", "certifications", "achievements"]
 HEADINGS = {"summary": "SUMMARY", "skills": "SKILLS", "experience": "EXPERIENCE", "projects": "PROJECTS",
             "education": "EDUCATION", "certifications": "CERTIFICATIONS", "achievements": "ACHIEVEMENTS"}
 
-_PROMPT = (
-    "You rewrite a candidate's resume for ONE job so it passes ATS keyword screening and reads well to a recruiter. "
-    "Hard rules:\n"
-    "1. Use ONLY facts in the original resume. Never add employers, titles, dates, degrees, numbers, tools or claims "
-    "that aren't there. Rephrasing and reordering is fine; inventing is not.\n"
-    "2. Weave in the job's keywords ONLY where the resume genuinely supports them, using the job's exact wording "
-    "(e.g. if the resume says 'dashboards in Tableau' and the JD says 'data visualization', you may say "
-    "'data visualization dashboards in Tableau'). List unsupported keywords in do_not_claim.\n"
-    "3. Bullets: start with a strong verb, one line or two, keep every number from the original bullet.\n"
-    "4. Order skills with the job's must-haves first. Order projects by relevance to the job.\n"
-    "5. headline: the job's title wording if truthful for this candidate's level, else their real target role.\n"
+_STRUCTURE_PROMPT = (
+    "Transcribe this resume into JSON exactly as written. Copy every bullet VERBATIM (fix only line-break hyphenation "
+    "and missing spaces), keep every entry in its original order, and invent nothing. Fields that aren't present are "
+    "null or empty lists. Return ONLY JSON:\n"
+    '{"headline": str|null (a role line under the name, if any), "summary": str|null (an intro paragraph, if any), '
+    '"skills": [{"group": str (label before the colon, or "Skills"), "items": [str]}], '
+    '"experience": [{"company": str, "title": str, "location": str|null, "dates": str|null, "bullets": [str]}], '
+    '"projects": [{"name": str, "subtitle": str|null (tagline after a dash), "tech": str|null (tech stack line), '
+    '"bullets": [str]}], '
+    '"education": [{"school": str, "degree": str|null, "dates": str|null, "location": str|null, "detail": str|null (grade, coursework or note)}], '
+    '"certifications": [str], "achievements": [str]}'
+)
+
+_EDIT_PROMPT = (
+    "You tailor a candidate's resume for ONE job with the smallest set of edits that gets it through ATS keyword "
+    "screening. You are given the resume as JSON. Return only the edits. Rules:\n"
+    "1. Use ONLY facts already in the resume. Never add employers, titles, dates, numbers, tools or claims.\n"
+    "2. bullet_edits: rewrite a bullet only when a small change lets it use the job's exact wording for something it "
+    "already shows (e.g. 'dashboards in Tableau' -> 'data visualization dashboards in Tableau'). Keep every number and "
+    "the bullet's length. Only INSERT a few words into the original sentence; never delete or replace its words. Place "
+    "each keyword under KEYWORDS TO PLACE in a bullet that mentions the tool it names in brackets, and nowhere else, "
+    "in brackets after that tool: 'PostgreSQL' -> 'PostgreSQL (SQL)', 'FastAPI' -> 'FastAPI (REST APIs)'. "
+    "Never put a skill into a bullet that doesn't already show it. Leave all other bullets out.\n"
+    "3. skills: the same groups with the same names; reorder items so the job's must-haves come first; add a keyword "
+    "only when the resume shows it (e.g. 'SQL' when it lists PostgreSQL).\n"
+    "4. headline / summary: an edited version only if the resume has one, same length and voice; else null.\n"
     "Return ONLY JSON:\n"
-    '{"headline": str, "summary": "2-3 sentences", '
-    '"skills": [{"group": str, "items": [str]}], '
-    '"experience": [{"title": str, "company": str, "location": str|null, "dates": str, '
-    '"bullets": [{"text": str, "source": "the original bullet this came from, verbatim"}]}], '
-    '"projects": [{"name": str, "tech": str|null, "link": str|null, "bullets": [{"text": str, "source": str}]}], '
-    '"education": [{"degree": str, "school": str, "dates": str|null, "detail": str|null}], '
-    '"certifications": [str], "achievements": [str], '
-    '"do_not_claim": [str], '
+    '{"bullet_edits": [{"original": "the bullet, copied exactly", "text": "edited bullet"}], '
+    '"skills": [{"group": str, "items": [str]}], "headline": str|null, "summary": str|null, '
+    '"do_not_claim": ["job keywords the resume does not support"], '
     '"cover_letter": "150-220 words, first person, specific to this company and role, only resume facts, no greeting or sign-off"}'
 )
 
@@ -65,14 +78,27 @@ def _normalize(data: Dict[str, Any]) -> Dict[str, Any]:
             skills.append({"group": g.get("group") or "Skills", "items": [str(i) for i in as_list(g.get("items")) if i]})
     data["skills"] = skills
     data["experience"] = [e for e in as_list(data.get("experience")) if isinstance(e, dict)]
-    data["projects"] = [p if isinstance(p, dict) else {"name": str(p), "bullets": []} for p in as_list(data.get("projects"))]
-    data["education"] = [e if isinstance(e, dict) else {"degree": str(e), "school": ""} for e in as_list(data.get("education"))]
+    data["projects"] = [p for p in as_list(data.get("projects")) if isinstance(p, dict) and p.get("name")]
+    for p in data["projects"]:  # a link's label isn't a tagline
+        if re.fullmatch(r"\s*(link|github|demo|code|live|repo|website)?\s*", str(p.get("subtitle") or ""), re.I):
+            p["subtitle"] = None
+        p["name"] = re.sub(r"\s*[-–—|]\s*(Link|GitHub|Demo|Code)\s*$", "", str(p["name"]))
+    data["education"] = [e for e in as_list(data.get("education")) if isinstance(e, dict) and (e.get("school") or e.get("degree"))]
     for key in ("certifications", "achievements", "do_not_claim"):
         data[key] = [str(x) for x in as_list(data.get(key)) if x and not isinstance(x, (dict, list))]
     for key in ("headline", "summary", "cover_letter"):
         if not isinstance(data.get(key), str):
             data[key] = ""
     return data
+
+
+def _flat(text: str) -> str:
+    """Whitespace/punctuation-insensitive form for matching wording."""
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
+def bullet_text(b: Any) -> str:
+    return (b.get("text") if isinstance(b, dict) else b) or ""
 
 
 def _guard(data: Dict[str, Any], source: str) -> List[str]:
@@ -82,23 +108,29 @@ def _guard(data: Dict[str, Any], source: str) -> List[str]:
     src_lower = re.sub(r"\s+", " ", source.lower())
     notes = []
 
+    src_flat = _flat(source)
+
     def fix_bullets(bullets):
+        """Each bullet becomes {text, original}: original is the resume's own
+        wording (None for a bullet the resume doesn't have), so the user can
+        accept or reject every edit."""
         out = []
         for b in bullets or []:
             if isinstance(b, str):
                 b = {"text": b, "source": ""}
             text = (b.get("text") or "").strip()
+            orig = (b.get("original") or b.get("source") or "").strip()
+            original = orig if orig and _flat(orig)[:60] in src_flat else None
             extra = _numbers(text) - src_nums
             if extra:
-                orig = (b.get("source") or "").strip()
-                if orig and not (_numbers(orig) - src_nums):
+                if original:
                     notes.append(f"Kept your original wording where the rewrite added {', '.join(sorted(extra))}.")
-                    text = orig
+                    text = original
                 else:
                     notes.append(f"Dropped a bullet that claimed {', '.join(sorted(extra))}, which isn't on your resume.")
                     continue
             if text:
-                out.append(text)
+                out.append({**{k: v for k, v in b.items() if k not in ("text", "source", "original")}, "text": text, "original": original or text})
         return out
 
     # Skills: every item must be traceable to the original resume, and nothing
@@ -110,11 +142,16 @@ def _guard(data: Dict[str, Any], source: str) -> List[str]:
         item = item.strip()
         return bool(item) and (term_in_text(item, source) > 0 or bool(implied_by(item, source)))
 
-    data["do_not_claim"] = [t for t in data.get("do_not_claim") or [] if not supported(t)]
+    dnc = [re.sub(r"\s*\(.*?\)\s*", " ", t).strip() for t in data.get("do_not_claim") or []]
+    data["do_not_claim"] = list(dict.fromkeys(t for t in dnc if t and not supported(t)))
 
     for g in data.get("skills") or []:
         items = []
+        own = set(g.get("original") or [])
         for raw in g.get("items") or []:
+            if raw in own:  # transcribed from the resume itself
+                items.append(raw)
+                continue
             m = re.match(r"^(.*?)\s*\((.*)\)\s*$", raw or "")
             if m:  # "AI tools (LLMs, OpenAI API, Claude)": check each inner item
                 inner = [x.strip() for x in m.group(2).split(",") if supported(x)]
@@ -132,6 +169,15 @@ def _guard(data: Dict[str, Any], source: str) -> List[str]:
                 if d:
                     notes.append(f"Removed skill '{d}', which isn't on your resume.")
         g["items"] = items
+        if g.get("original") is not None:
+            continue
+        m = re.search(r"(?im)^\s*" + re.escape(g.get("group") or "~~") + r"\s*:\s*(.+(?:\n(?![^\n]{0,40}:)[^\n]+){0,2})", source)
+        if m:
+            body = m.group(1).split("\n\n")[0]
+            body = re.split(r"\n(?=[A-Z][\w &/]{2,30}\n)", body)[0].replace("\n", " ")
+            g["original"] = [x.strip() for x in re.split(r",(?![^()]*\))", body) if x.strip()]
+        else:
+            g["original"] = None
 
     kept = []
     for e in data.get("experience") or []:
@@ -174,11 +220,12 @@ def _section_lines(data: Dict[str, Any], sec: str) -> List[str]:
         for e in data.get("experience") or []:
             out.append(f"{e.get('title', '')}, {e.get('company', '')}" + (f", {e['location']}" if e.get("location") else "")
                        + (f" | {e['dates']}" if e.get("dates") else ""))
-            out += [f"- {b}" for b in e.get("bullets") or []]
+            out += [f"- {bullet_text(b)}" for b in e.get("bullets") or []]
     elif sec == "projects":
         for p in data.get("projects") or []:
-            out.append(p.get("name", "") + (f" | {p['tech']}" if p.get("tech") else "") + (f" | {p['link']}" if p.get("link") else ""))
-            out += [f"- {b}" for b in p.get("bullets") or []]
+            out.append(p.get("name", "") + (f" - {p['subtitle']}" if p.get("subtitle") else "") + (f" | {p['tech']}" if p.get("tech") else "")
+                       + (f" | {p['link']}" if p.get("link") else ""))
+            out += [f"- {bullet_text(b)}" for b in p.get("bullets") or []]
     elif sec == "education":
         for ed in data.get("education") or []:
             out.append(", ".join(x for x in [ed.get("degree"), ed.get("school")] if x) + (f" | {ed['dates']}" if ed.get("dates") else ""))
@@ -187,6 +234,21 @@ def _section_lines(data: Dict[str, Any], sec: str) -> List[str]:
     elif sec in ("certifications", "achievements"):
         out += [f"- {c}" for c in data.get(sec) or [] if c]
     return out
+
+
+def _add_implied_skills(data: Dict[str, Any], rows: List[Dict[str, Any]], notes: List[str]) -> None:
+    """A skill the resume shows through a specific tool (SQL via PostgreSQL)
+    goes into the group that lists that tool, in the job's own word."""
+    text = to_text(data, {"name": "", "contact": []})
+    for r in rows:
+        if r["status"] != "implied" or term_in_text(r["term"], text):
+            continue
+        group = next((g for g in data.get("skills") or [] if any(term_in_text(v, ", ".join(g.get("items") or [])) for v in r.get("via") or [])), None)
+        if group is None and data.get("skills"):
+            group = data["skills"][0]
+        if group is not None:
+            group["items"] = list(group.get("items") or []) + [r["term"]]
+            notes.append(f"Added '{r['term']}' to {group.get('group') or 'Skills'}: you list {', '.join(r.get('via') or [])}.")
 
 
 def _link_projects(data: Dict[str, Any], link_lines: List[Dict[str, str]]) -> None:
@@ -205,8 +267,10 @@ def _link_projects(data: Dict[str, Any], link_lines: List[Dict[str, str]]) -> No
             line = re.sub(r"[^a-z0-9]+", " ", l["line"].lower())
             hits = sum(1 for w in words if re.search(r"\b" + re.escape(w), line))
             if hits > best_hits:
-                best, best_hits = l["uri"], hits
-        p["link"] = re.sub(r"^https?://(www\.)?", "", best).rstrip("/") if best else None
+                best, best_hits = l, hits
+        p["link"] = re.sub(r"^https?://(www\.)?", "", best["uri"]).rstrip("/") if best else None
+        label = re.search(r"\b(Link|GitHub|Github|Demo|Code|Live|Repo|Website)\s*$", best["line"]) if best else None
+        p["link_label"] = label.group(1) if label else None
 
 
 def _header(profile: Dict[str, Any], contact: Dict[str, Any]) -> Dict[str, Any]:
@@ -219,22 +283,104 @@ def _header(profile: Dict[str, Any], contact: Dict[str, Any]) -> Dict[str, Any]:
     return {"name": profile.get("name") or "Your Name", "contact": bits}
 
 
+def resume_structure(resume_text: str) -> Optional[Dict[str, Any]]:
+    """The original resume as sections/entries/bullets, verbatim (cached by the LLM layer)."""
+    raw = llm_json(_STRUCTURE_PROMPT, resume_text[:12000], max_tokens=5000, timeout=90)
+    if not isinstance(raw, dict):
+        return None
+    data = _normalize(raw)
+    for sec in ("experience", "projects"):
+        for it in data[sec]:
+            it["bullets"] = [{"text": str(b).strip(), "original": str(b).strip()} for b in it.get("bullets") or []
+                             if isinstance(b, (str, int, float)) and str(b).strip()]
+    for g in data["skills"]:
+        g["original"] = list(g["items"])
+    return data
+
+
+_GLUE = {"a", "an", "the", "and", "or", "to", "for", "of", "in", "on", "with", "by", "using", "via", "as", "at", "from", "into"}
+
+
+def _drops_facts(original: str, new: str) -> bool:
+    """True when the edit removes a content word of the original: edits may
+    add the job's wording, never trade away what the candidate did."""
+    words = lambda t: re.findall(r"[a-z0-9+#]+(?:\.[a-z0-9]+)*", t.lower())
+    kept = set(words(new))
+    return any(w not in kept and w not in _GLUE for w in words(original))
+
+
+def _apply_edits(data: Dict[str, Any], edits: Dict[str, Any], source: str, notes: List[str], keywords: List[str]) -> None:
+    src_nums = _numbers(source)
+    placed: set = set()
+    bullets = [b for sec in ("experience", "projects") for it in data[sec] for b in it["bullets"]]
+    for e in edits.get("bullet_edits") or []:
+        if not isinstance(e, dict) or not e.get("original") or not e.get("text"):
+            continue
+        target = _flat(e["original"])
+        best, score = None, 0.0
+        for b in bullets:
+            r = difflib.SequenceMatcher(None, target, _flat(b["original"])).ratio()
+            if r > score:
+                best, score = b, r
+        if not best or score < 0.85:
+            continue
+        new = str(e["text"]).strip()
+        extra = _numbers(new) - src_nums
+        if extra:
+            notes.append(f"Skipped an edit that added {', '.join(sorted(extra))}, which isn't on your resume.")
+            continue
+        # An edit earns its place only by naming a job keyword the bullet didn't
+        # have yet, once per keyword, without bloating the line.
+        gained = {k for k in keywords if term_in_text(k, new) and not term_in_text(k, best["original"])}
+        # Truthful only if this bullet itself shows the skill: "SQL" into a
+        # bullet about PostgreSQL, never "Java" into one that never used it.
+        if any(not implied_by(k, best["original"]) for k in gained):
+            continue
+        if not gained or gained <= placed or len(new) > len(best["original"]) * 1.35 + 20 or _drops_facts(best["original"], new):
+            continue
+        placed |= gained
+        best["text"] = new
+        best["keywords"] = sorted(gained)
+    # Skills: only the resume's own groups, matched by name.
+    by_name = {(g.get("group") or "").strip().lower(): g for g in data["skills"]}
+    for g in edits.get("skills") or []:
+        if not isinstance(g, dict):
+            continue
+        own = by_name.get((g.get("group") or "").strip().lower())
+        if own and isinstance(g.get("items"), list) and g["items"]:
+            own["items"] = [str(i) for i in g["items"] if i]
+    for key in ("headline", "summary"):
+        if data.get(key) and isinstance(edits.get(key), str) and edits[key].strip() and not (_numbers(edits[key]) - src_nums):
+            data[key] = edits[key].strip()
+    data["do_not_claim"] = edits.get("do_not_claim") or []
+    data["cover_letter"] = edits.get("cover_letter") if isinstance(edits.get("cover_letter"), str) else ""
+
+
 def build(resume_text: str, profile: Dict[str, Any], audit_result: Dict[str, Any], jd_text: str, before: Dict[str, Any],
           ats_id: str, job_title: str, company: str) -> Optional[Dict[str, Any]]:
-    must = [r["term"] for r in before["keywords"]["must_have"]]
-    implied = [f"{r['term']} (shown by {', '.join(r['via'])})" for r in before["keywords"]["must_have"] + before["keywords"]["nice_to_have"]
-               if r["status"] == "implied"]
-    nice = [r["term"] for r in before["keywords"]["nice_to_have"]]
-    data = llm_json(_PROMPT,
-                    f"JOB: {job_title} at {company}\nMUST-HAVE KEYWORDS: {', '.join(must)}\nNICE-TO-HAVE: {', '.join(nice)}\n"
-                    f"IMPLIED BY THE RESUME (name these explicitly, they are truthful): {', '.join(implied) or 'none'}\n"
-                    f"CANDIDATE LEVEL: {profile.get('seniority')} ({profile.get('years_experience')} years incl. internships)\n\n"
-                    f"JOB DESCRIPTION:\n{jd_text[:5000]}\n\nORIGINAL RESUME:\n{resume_text[:9000]}",
-                    max_tokens=4500, timeout=90)
+    data = resume_structure(resume_text)
     if not data:
         return None
-    notes = _guard(_normalize(data), resume_text)
+    must = [r["term"] for r in before["keywords"]["must_have"]]
+    nice = [r["term"] for r in before["keywords"]["nice_to_have"]]
+    rows = before["keywords"]["must_have"] + before["keywords"]["nice_to_have"]
+    to_place = [f"{r['term']} (only in a bullet that mentions {' or '.join(r['via'])})" for r in rows if r["status"] == "implied"]
+    implied = [f"{r['term']} (shown by {', '.join(r['via'])})" for r in rows if r["status"] == "implied"]
+    view = {k: data[k] for k in ("headline", "summary", "skills")}
+    view["experience"] = [{**{k: v for k, v in e.items() if k != "bullets"}, "bullets": [b["text"] for b in e["bullets"]]} for e in data["experience"]]
+    view["projects"] = [{**{k: v for k, v in p.items() if k != "bullets"}, "bullets": [b["text"] for b in p["bullets"]]} for p in data["projects"]]
+    edits = llm_json(_EDIT_PROMPT,
+                     f"JOB: {job_title} at {company}\nMUST-HAVE KEYWORDS: {', '.join(must)}\nNICE-TO-HAVE: {', '.join(nice)}\n"
+                     f"KEYWORDS TO PLACE (supported by the resume, not yet in the job's words): {', '.join(to_place) or 'none'}\n"
+                     f"IMPLIED BY THE RESUME (truthful to name): {', '.join(implied) or 'none'}\n\n"
+                     f"JOB DESCRIPTION:\n{jd_text[:5000]}\n\nRESUME JSON:\n{json.dumps(view, ensure_ascii=False)[:9000]}",
+                     max_tokens=3000, timeout=90) or {}
+    notes: List[str] = []
+    _apply_edits(data, edits, resume_text, notes, must + nice)
+    notes += _guard(data, resume_text)
+    _add_implied_skills(data, rows, notes)
     _link_projects(data, (audit_result.get("contact") or {}).get("link_lines") or [])
+    plan = latex.section_plan(resume_text)
     header = _header(profile, audit_result.get("contact") or {})
     text = to_text(data, header)
 
@@ -248,6 +394,10 @@ def build(resume_text: str, profile: Dict[str, Any], audit_result: Dict[str, Any
         "after": {"score": after["score"], "verdict": after["verdict"], "coverage": after["coverage"],
                   "keywords": after["keywords"], "fixes": after["fixes"]},
         "audit_issues": [i["title"] for i in new_audit["issues"]],
+        "style": audit_result.get("style") or {}, "plan": plan,
+        "changes": sum(1 for sec in ("experience", "projects") for it in data.get(sec) or [] for b in it.get("bullets") or []
+                       if _flat(b["text"]) != _flat(b["original"])),
+        "latex_engine": latex.can_compile(),
     }
 
 
@@ -322,7 +472,7 @@ def to_pdf(data: Dict[str, Any], header: Dict[str, Any]) -> bytes:
                 para(f"{e.get('title', '')}, {e.get('company', '')}" + (f", {e['location']}" if e.get("location") else "")
                      + (f"  |  {e['dates']}" if e.get("dates") else ""), "B")
                 for b in e.get("bullets") or []:
-                    bullet(b)
+                    bullet(bullet_text(b))
                 pdf.ln(1)
         elif sec == "projects":
             for p in data["projects"]:
@@ -330,7 +480,7 @@ def to_pdf(data: Dict[str, Any], header: Dict[str, Any]) -> bytes:
                 if p.get("link"):
                     para(p["link"], size=9)
                 for b in p.get("bullets") or []:
-                    bullet(b)
+                    bullet(bullet_text(b))
                 pdf.ln(1)
         elif sec == "education":
             for ed in data["education"]:

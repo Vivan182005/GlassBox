@@ -14,7 +14,7 @@ import concurrent.futures as cf
 from typing import Any, Dict, List, Optional
 
 from core.llm import llm_json
-from jobs.boards import load_registry, fetch_company_jobs, fetch_job_description
+from jobs.boards import load_registry, fetch_company_jobs, fetch_job_description, posted_hours
 from jobs.network import jsearch, search_links
 from matching.skills_lexicon import find_skills, SOFT_CATEGORY, skill_category
 from matching.ats_check import years_required
@@ -245,7 +245,13 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     for job in raw:
         if not city_ok(job):
             continue
-        if max_age_days and job.get("posted_days") is not None and job["posted_days"] > max_age_days:
+        if max_age_days == 1:
+            # "Past 24 hours", like LinkedIn: exact where the board gives a
+            # timestamp; for day-granular boards only "Posted Today" counts.
+            hours = posted_hours(job)
+            if (hours is not None and hours > 24) or (hours is None and job.get("posted_days") != 0):
+                continue
+        elif max_age_days and job.get("posted_days") is not None and job["posted_days"] > max_age_days:
             continue
         if title_match(job["title"], roles, expansion) <= 0:
             continue
@@ -280,6 +286,8 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     for j in ranked[:limit] + network_ranked[:40]:
         out = {k: v for k, v in j.items() if k != "description"}
         out["has_description"] = bool(j.get("description"))
+        h = posted_hours(j)
+        out["posted_hours"] = round(h, 1) if h is not None else None
         jobs_out.append(out)
 
     by_ats: Dict[str, int] = {}

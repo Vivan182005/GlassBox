@@ -86,7 +86,7 @@ def _groq_once(model: str, system: str, user: str, json_mode: bool, max_tokens: 
     body: Dict[str, Any] = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "temperature": 0.1,
+        "temperature": 0,
         "max_completion_tokens": max_tokens,
     }
     if json_mode:
@@ -128,7 +128,7 @@ def _call_gemini(system: str, user: str, json_mode: bool, max_tokens: int, timeo
     key = _gemini_key()
     if not key:
         return None
-    gen_cfg: Dict[str, Any] = {"temperature": 0.1, "maxOutputTokens": max_tokens, "thinkingConfig": {"thinkingBudget": 0}}
+    gen_cfg: Dict[str, Any] = {"temperature": 0, "maxOutputTokens": max_tokens, "thinkingConfig": {"thinkingBudget": 0}}
     if json_mode:
         gen_cfg["responseMimeType"] = "application/json"
     body = {

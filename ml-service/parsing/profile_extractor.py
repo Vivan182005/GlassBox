@@ -387,25 +387,4 @@ def extract_profile(text: str, layout_audit: Optional[Dict[str, Any]] = None) ->
         "method": "ai" if llm else "rules",
         "warnings": warnings,
     }
-    profile["bias_features"] = bias_features(profile, layout_audit or {})
     return profile
-
-
-def bias_features(profile: Dict[str, Any], layout_audit: Dict[str, Any]) -> Dict[str, Any]:
-    """Maps the profile onto the feature vector used by the Fairness Lab's audited model."""
-    edu = profile.get("education") or {}
-    gpa = edu.get("gpa")
-    if gpa and (edu.get("gpa_scale") or 10) > 4.5:
-        gpa = round(gpa / 10 * 4, 2)
-    exp = profile.get("experience") or []
-    return {
-        "years_experience": profile.get("years_experience") or 0.0,
-        "skill_count": len([s for s in profile.get("skills", []) if s["category"] != "Soft Skills"]),
-        "college_tier": edu.get("college_tier") or "Tier 2/3",
-        "employment_gap_months": 0,
-        "has_internship": any(e.get("is_internship") for e in exp) or bool(re.search(r"intern", " ".join(e.get("title", "") for e in exp), re.IGNORECASE)),
-        "gpa": gpa if gpa else 3.0,
-        "project_count": max(1, min(10, layout_audit.get("bullets", 0) // 4)) if layout_audit else 3,
-        "graduation_year": edu.get("graduation_year") or datetime.date.today().year,
-        "has_referral": False,
-    }

@@ -10,7 +10,11 @@ Combines four measurable signals:
   * title alignment: whether the resume uses the job's title wording.
 The result is a simulation estimate, not a vendor's real score.
 """
+import hashlib
+import json
+import os
 import re
+import threading
 from typing import Any, Dict, List, Optional
 
 from ats.profiles import get_profile, public_profile
@@ -99,7 +103,51 @@ def _rules_jd(jd: str, title: str) -> Dict[str, Any]:
             "soft_skills": soft[:8], "knockouts": [], "method": "rules"}
 
 
+_JD_CACHE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "jd_analysis_cache.json")
+_jd_lock = threading.Lock()
+_jd_cache: Optional[Dict[str, Any]] = None
+
+
+def _jd_cache_get(key: str) -> Optional[Dict[str, Any]]:
+    global _jd_cache
+    with _jd_lock:
+        if _jd_cache is None:
+            try:
+                with open(_JD_CACHE_PATH, encoding="utf-8") as f:
+                    _jd_cache = json.load(f)
+            except Exception:
+                _jd_cache = {}
+        return _jd_cache.get(key)
+
+
+def _jd_cache_put(key: str, value: Dict[str, Any]) -> None:
+    with _jd_lock:
+        _jd_cache[key] = value
+        if len(_jd_cache) > 3000:
+            for k in list(_jd_cache)[:1000]:
+                _jd_cache.pop(k, None)
+        try:
+            with open(_JD_CACHE_PATH, "w", encoding="utf-8") as f:
+                json.dump(_jd_cache, f)
+        except Exception:
+            pass
+
+
 def analyze_jd(jd: str, title: str = "") -> Dict[str, Any]:
+    """The job's keywords and requirements. Cached on disk by JD text, so one
+    job gets the same keywords (and the same rating) in the list, the pass
+    check and the apply flow, across restarts."""
+    key = hashlib.sha256(f"{title}\n{jd}".encode("utf-8")).hexdigest()
+    hit = _jd_cache_get(key)
+    if hit:
+        return hit
+    out = _analyze_jd(jd, title)
+    if out.get("method") == "ai":
+        _jd_cache_put(key, out)
+    return out
+
+
+def _analyze_jd(jd: str, title: str = "") -> Dict[str, Any]:
     data = llm_json(
         "You are an ATS configuration expert. Extract the keywords a recruiter would search for or an ATS ranker would "
         "match when screening resumes for this job. Use the exact wording recruiters would search (e.g. 'Python', 'SQL', "

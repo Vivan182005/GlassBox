@@ -19,7 +19,8 @@ services:
     env: python
     region: singapore
     rootDir: ml-service
-    buildCommand: pip install -r requirements.txt
+    # Tectonic (LaTeX) lets the server compile tailored resumes in the candidate's own style
+    buildCommand: pip install -r requirements.txt && bash bin/install_tectonic.sh
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: GROQ_API_KEY

@@ -1,8 +1,8 @@
-import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Nav from './components/Nav';
 import CheckDrawer from './components/CheckDrawer';
 import ApplyDrawer from './components/ApplyDrawer';
-import { Toast, Spinner } from './components/ui/primitives';
+import { Toast } from './components/ui/primitives';
 import ScanView from './views/ScanView';
 import JobsView, { cityFromLocation } from './views/JobsView';
 import CompanyView from './views/CompanyView';
@@ -11,9 +11,8 @@ import Footer from './components/Footer';
 import { api } from './api';
 import { storage } from './lib/format';
 
-const FairnessView = lazy(() => import('./views/FairnessView'));
 
-const VIEWS = ['scan', 'jobs', 'applications', 'company', 'fairness'];
+const VIEWS = ['scan', 'jobs', 'applications', 'company'];
 const viewFromHash = () => {
   const h = window.location.hash.replace('#', '');
   return VIEWS.includes(h) ? h : null;
@@ -27,7 +26,6 @@ const FOOTER_COLUMNS = [
       { label: 'Jobs in India', href: '#jobs' },
       { label: 'Applications', href: '#applications' },
       { label: 'ATS Lookup', href: '#company' },
-      { label: 'Fairness Lab', href: '#fairness' },
     ],
   },
   {
@@ -49,11 +47,6 @@ const FOOTER_COLUMNS = [
   },
 ];
 
-const DEFAULT_FEATURES = {
-  years_experience: 2, skill_count: 8, college_tier: 'Tier 2/3', employment_gap_months: 0, has_internship: true,
-  gpa: 3.2, project_count: 3, graduation_year: 2023, has_referral: false, demographic_proxy: 'Group B',
-};
-
 export default function App() {
   const [view, setView] = useState(() => viewFromHash() || storage.get('gb.view', 'scan'));
   const [analysis, setAnalysis] = useState(() => storage.get('gb.analysis'));
@@ -65,7 +58,6 @@ export default function App() {
   const [ratings, setRatings] = useState({});
   const [applications, setApplications] = useState(() => storage.get('gb.applications', []));
   const [savedAnswers, setSavedAnswers] = useState(() => storage.get('gb.answers', {}));
-  const [features, setFeatures] = useState(() => analysis?.profile?.bias_features ? { ...DEFAULT_FEATURES, ...analysis.profile.bias_features } : DEFAULT_FEATURES);
   const [health, setHealth] = useState(null);
   const [meta, setMeta] = useState(null);
   const [toast, setToast] = useState(null);
@@ -102,7 +94,6 @@ export default function App() {
     setFilters(f => ({ ...f, cities: city ? [city] : f.cities }));
     setJobResults(null);
     setRatings({});
-    if (res.profile?.bias_features) setFeatures({ ...DEFAULT_FEATURES, ...res.profile.bias_features });
     window.scrollTo({ top: 0 });
   };
 
@@ -130,11 +121,6 @@ export default function App() {
           <ApplicationsView applications={applications} setApplications={setApplications} goJobs={() => setView('jobs')} />
         )}
         {view === 'company' && <CompanyView analysis={analysis} roles={roles} openCheck={setCheckJob} notify={notify} meta={meta} />}
-        {view === 'fairness' && (
-          <Suspense fallback={<div className="empty"><Spinner size={22} /></div>}>
-            <FairnessView features={features} setFeatures={setFeatures} fromResume={Boolean(analysis)} />
-          </Suspense>
-        )}
       </main>
       <Footer columns={FOOTER_COLUMNS} />
       {applyJob && (

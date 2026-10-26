@@ -92,13 +92,29 @@ def _posted_label(iso: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
     if not iso:
         return None, None
     try:
-        dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        dt = _parse_iso(iso)
         days = (datetime.datetime.now(datetime.timezone.utc) - dt).days
         return dt.isoformat(), max(days, 0)
     except Exception:
         return None, None
+
+
+def _parse_iso(iso: Any) -> datetime.datetime:
+    if isinstance(iso, (int, float)):  # epoch milliseconds (Lever)
+        return datetime.datetime.fromtimestamp(iso / 1000, tz=datetime.timezone.utc)
+    dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
+
+
+def posted_hours(job: Dict[str, Any]) -> Optional[float]:
+    """Hours since posting when the board gives a timestamp; None when it only
+    gives a day count (Workday's "Posted Today")."""
+    if not job.get("posted_at"):
+        return None
+    try:
+        return max(0.0, (datetime.datetime.now(datetime.timezone.utc) - _parse_iso(job["posted_at"])).total_seconds() / 3600)
+    except Exception:
+        return None
 
 
 def _job(company: Dict[str, Any], job_id: str, title: str, location: str, url: str,

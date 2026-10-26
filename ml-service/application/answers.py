@@ -30,7 +30,7 @@ _SLOTS = [
     ("cover_letter", r"cover letter"),
     ("location", r"current (location|city)|where are you (based|located)|^location$|^city$|what is your location"),
     ("current_company", r"current (company|employer|organi[sz]ation)"),
-    ("current_title", r"current (designation|title|role|position)"),
+    ("current_title", r"current (designation|title|role|position)|career stage|current status|experience level|which best describes you"),
     ("years", r"years of (work |professional |relevant )?experience|experience \(?in years|yrs\.? of exp|total experience|how many years"),
     ("college", r"college|university|school|institut"),
     ("degree", r"degree|qualification"),
@@ -146,6 +146,18 @@ def _this_year() -> int:
     return datetime.date.today().year
 
 
+def _facts(profile: Dict[str, Any]) -> str:
+    """Status facts stated plainly, so drafted answers don't guess them."""
+    edu = profile.get("education") or {}
+    grad = edu.get("graduation_year")
+    student = bool(grad and grad >= _this_year()) if profile.get("student") is None else profile.get("student")
+    cur = _current_job(profile)
+    return (f"Graduation year: {grad or 'unknown'} ({'still studying' if student else 'graduated'}). "
+            f"Full-time experience: {profile.get('full_time_years') or 0} years; internships: {round((profile.get('internship_years') or 0) * 12)} months. "
+            f"Currently: {('working at ' + cur.get('company', '')) if cur else ('a student' if student else 'not employed')}. "
+            f"Location: {profile.get('location') or 'unknown'}.")
+
+
 def _draft(fields: List[Dict[str, Any]], resume_text: str, profile: Dict[str, Any], job: Dict[str, Any], jd_text: str) -> Dict[str, Any]:
     if not fields:
         return {}
@@ -159,6 +171,7 @@ def _draft(fields: List[Dict[str, Any]], resume_text: str, profile: Dict[str, An
         "- If the resume doesn't contain the answer (salary, notice period, visa, preferences, personal facts), return null. "
         "Never guess these.\n"
         'Return ONLY JSON: {"answers": {"<id>": {"value": string|list|null, "basis": "the resume fact used, or why null"}}}',
+        f"CANDIDATE FACTS (authoritative): {_facts(profile)}\n"
         f"JOB: {job.get('title')} at {job.get('company')}\nJOB DESCRIPTION (excerpt):\n{(jd_text or '')[:3500]}\n\n"
         f"RESUME:\n{resume_text[:7000]}\n\nQUESTIONS:\n{spec}",
         max_tokens=2500, timeout=60)

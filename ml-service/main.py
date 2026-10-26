@@ -25,13 +25,10 @@ from jobs.network import RAPIDAPI_KEY, search_links, company_listings
 from parsing.resume_reader import read_resume, read_text, audit, parse_score, ats_view
 from parsing.profile_extractor import extract_profile
 from matching.ats_check import run_check, tailor
-from bias_model.model_trainer import trainer_instance
-from explainability.explainer import explainer_instance
-from explainability.fairness import calculate_fairness_metrics, calculate_mitigated_fairness_metrics
 from application.rating import rate, APPLY_THRESHOLD
 from application.forms import application_form
 from application.answers import answer_form, summarize
-from application import resume_builder
+from application import latex, resume_builder
 
 app = FastAPI(title="GlassBox ML Service", description="Resume X-ray, India job network and ATS pass check", version="2.0.0")
 
@@ -61,7 +58,7 @@ def health():
         "status": "ok", "service": "GlassBox ML Service", "version": app.version,
         "llm": llm_status(),
         "network": {"companies": len(registry), "by_ats": by_ats, "jsearch": bool(RAPIDAPI_KEY)},
-        "supabase": get_supabase() is not None,
+        "latex": latex.can_compile(), "supabase": get_supabase() is not None,
     }
 
 
@@ -273,18 +270,47 @@ class ResumeFileRequest(BaseModel):
     resume: Dict[str, Any]
     header: Dict[str, Any]
     filename: str = "resume"
+    style: Dict[str, Any] = {}
+    plan: Dict[str, Any] = {}
+    contact: Dict[str, Any] = {}
+    user_tex: Optional[str] = None
+
+
+def _tex_for(req: ResumeFileRequest):
+    if req.user_tex and "\\begin{document}" in req.user_tex:
+        return latex.apply_to_tex(req.user_tex, req.resume)
+    return latex.render(req.resume, req.header, req.style, req.plan, req.contact), []
+
+
+def _safe_name(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", name)[:60] or "resume"
+
+
+@app.post("/api/apply/resume.tex")
+def apply_resume_tex(req: ResumeFileRequest):
+    """LaTeX source in the original's style (or the user's own .tex with the
+    accepted edits); open it in Overleaf or compile it anywhere."""
+    tex, notes = _tex_for(req)
+    return {"tex": tex, "notes": notes, "filename": f"{_safe_name(req.filename)}.tex", "engine": latex.can_compile()}
 
 
 @app.post("/api/apply/resume.pdf")
 def apply_resume_pdf(req: ResumeFileRequest):
-    name = re.sub(r"[^A-Za-z0-9_-]+", "_", req.filename)[:60] or "resume"
-    return Response(resume_builder.to_pdf(req.resume, req.header), media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'})
+    pdf, renderer = None, "basic"
+    if req.style or req.user_tex:
+        tex, _ = _tex_for(req)
+        pdf, _log = latex.compile_pdf(tex)
+        renderer = "latex" if pdf else "basic"
+    if pdf is None:
+        pdf = resume_builder.to_pdf(req.resume, req.header)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_name(req.filename)}.pdf"', "X-Resume-Renderer": renderer,
+                             "Access-Control-Expose-Headers": "X-Resume-Renderer"})
 
 
 @app.post("/api/apply/resume.docx")
 def apply_resume_docx(req: ResumeFileRequest):
-    name = re.sub(r"[^A-Za-z0-9_-]+", "_", req.filename)[:60] or "resume"
+    name = _safe_name(req.filename)
     return Response(resume_builder.to_docx(req.resume, req.header),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{name}.docx"'})
@@ -331,69 +357,3 @@ class CompanyConfirmRequest(BaseModel):
 @app.post("/api/company/confirm")
 def company_confirm(req: CompanyConfirmRequest):
     return confirm_company_ats(req.company, req.ats_id)
-
-
-# ---------------------------------------------------------------------------
-# Fairness Lab (simulated screening model + explainability)
-# ---------------------------------------------------------------------------
-
-class CandidatePredictRequest(BaseModel):
-    years_experience: float = 3.0
-    skill_count: int = 5
-    college_tier: str = "Tier 2/3"
-    employment_gap_months: float = 0
-    has_internship: bool = True
-    gpa: float = 3.5
-    project_count: int = 3
-    graduation_year: int = 2023
-    has_referral: bool = False
-    demographic_proxy: str = "Group B"
-    ice_feature: Optional[str] = "employment_gap_months"
-    use_mitigated: Optional[bool] = False
-
-
-@app.get("/api/model/stats")
-def model_stats():
-    if trainer_instance.model is None:
-        trainer_instance.train_model()
-    return trainer_instance.metrics
-
-
-@app.post("/api/model/predict-explain")
-def predict_and_explain(req: CandidatePredictRequest):
-    feat = req.model_dump()
-    verdict = trainer_instance.predict_candidate(feat, use_mitigated=bool(req.use_mitigated))
-    waterfall = explainer_instance.get_candidate_shap_waterfall(feat)
-    lime_res = explainer_instance.get_lime_explanation(feat)
-    ice = explainer_instance.get_ice_plot_data(req.ice_feature or "employment_gap_months", feat)
-    return {
-        "candidate_features": feat,
-        "model_verdict": verdict,
-        "plain_language_summary": explainer_instance.generate_plain_language_explanation(feat, verdict, waterfall["waterfall"], ice),
-        "explanation_consistency": explainer_instance.compute_shap_lime_agreement(waterfall["waterfall"], lime_res["lime_rules"]),
-        "model_calibration": trainer_instance.metrics,
-        "global_shap": explainer_instance.get_global_shap_importance()["global_importance"],
-        "shap_waterfall": waterfall,
-        "lime_explanation": lime_res,
-        "ice_plot": ice,
-    }
-
-
-@app.get("/api/model/fairness")
-def fairness():
-    return calculate_fairness_metrics()
-
-
-@app.get("/api/model/mitigate")
-def mitigate():
-    return calculate_mitigated_fairness_metrics()
-
-
-@app.get("/api/resumes/sample")
-def sample_resumes():
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cached_resumes.json")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)[:25]
-    except Exception:
-        return []

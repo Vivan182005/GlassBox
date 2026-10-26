@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, MapPin, Clock, ExternalLink, ScanLine, Radar, ArrowUpRight, ClipboardPaste, AlertCircle, Send, Star, BadgeCheck } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, MapPin, Clock, ExternalLink, ScanLine, Radar, ArrowUpRight, ClipboardPaste, AlertCircle, Send, Star, BadgeCheck, CheckCircle2, Pencil } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import { AtsBadge, CompanyLogo, Chip, AddInput, Seg, Spinner } from '../components/ui/primitives';
 import { scoreColor, postedLabel, atsColor, APPLY_THRESHOLD } from '../lib/format';
@@ -43,8 +43,58 @@ function Scanning({ companies }) {
   );
 }
 
+const LEVELS = [
+  { value: 'student', label: 'Student · internships' },
+  { value: 'fresher', label: 'Fresher · 0–1 yr' },
+  { value: 'experienced', label: 'Experienced' },
+];
+
+function levelOf(profile) {
+  if (profile?.student) return 'student';
+  return (profile?.full_time_years ?? profile?.years_experience ?? 0) >= 1 ? 'experienced' : 'fresher';
+}
+
+function ConfirmProfile({ analysis, roles, setRoles, prefs, setPrefs, skills, onSearch, loading }) {
+  const p = analysis.profile;
+  return (
+    <div className="card glow" style={{ marginBottom: 18 }}>
+      <div className="card-head"><CheckCircle2 size={18} /><div className="h3">Is this what you're looking for?</div></div>
+      <p className="small muted" style={{ marginBottom: 16 }}>
+        Read from {p.name ? `${p.name.split(' ')[0]}'s` : 'your'} resume. Fix anything that's off before GlassBox searches; it ranks and rates every job against these.
+      </p>
+      <div className="stack" style={{ gap: 14 }}>
+        <div className="filter-row">
+          <span className="label eyebrow">Roles</span>
+          {roles.map(r => <Chip key={r} onRemove={() => setRoles(roles.filter(x => x !== r))}>{r}</Chip>)}
+          <AddInput placeholder="+ Add role" onAdd={r => !roles.includes(r) && setRoles([...roles, r])} />
+        </div>
+        <div className="filter-row">
+          <span className="label eyebrow">Level</span>
+          <Seg value={prefs.level} onChange={v => setPrefs(x => ({ ...x, level: v }))} options={LEVELS} />
+          <span className="tiny faint">
+            Resume shows {p.full_time_years ? `${p.full_time_years} yrs full-time` : 'no full-time work'}
+            {p.internship_years ? ` + ${Math.round(p.internship_years * 12)} mo internships` : ''}
+          </span>
+        </div>
+        <div className="filter-row">
+          <span className="label eyebrow">Skills</span>
+          {skills.slice(0, 14).map(sk => <Chip key={sk} onRemove={() => setPrefs(x => ({ ...x, removed: [...x.removed, sk] }))}>{sk}</Chip>)}
+          {skills.length > 14 && <span className="tiny faint">+{skills.length - 14} more</span>}
+          <AddInput placeholder="+ Add skill" onAdd={sk => setPrefs(x => ({ ...x, added: [...x.added, sk] }))} />
+        </div>
+      </div>
+      <div className="row wrap" style={{ marginTop: 18, gap: 12 }}>
+        <span className="tiny faint" style={{ flex: 1 }}>Cities and posting date are in the filters below.</span>
+        <button className="btn primary" onClick={onSearch} disabled={loading || !roles.length}>
+          {loading ? <Spinner /> : <Search size={15} />} Looks right, search
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function JobCard({ job, onCheck, onApply, rating, rating_busy, applied, delay }) {
-  const posted = postedLabel(job.posted_days);
+  const posted = job.posted_hours != null && job.posted_hours < 24 ? `${Math.max(1, Math.round(job.posted_hours))}h ago` : postedLabel(job.posted_days);
   const recommended = rating ? rating.score >= APPLY_THRESHOLD : null;
   return (
     <div className="job" style={{ animationDelay: `${delay}ms` }}>
@@ -98,12 +148,20 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
   const [shown, setShown] = useState(30);
   const [showMoreCities, setShowMoreCities] = useState(false);
   const [manualSkills, setManualSkills] = useState([]);
-  const autoRan = useRef(false);
+  const [prefs, setPrefs] = useState(() => ({ level: levelOf(analysis?.profile), removed: [], added: [] }));
+  const [editing, setEditing] = useState(!results);
+  useEffect(() => { setPrefs({ level: levelOf(analysis?.profile), removed: [], added: [] }); }, [analysis]);
 
   const skills = useMemo(
-    () => (analysis?.profile?.skills || []).filter(s => s.category !== 'Soft Skills').map(s => s.name).concat(manualSkills),
-    [analysis, manualSkills]
+    () => (analysis?.profile?.skills || []).filter(s => s.category !== 'Soft Skills').map(s => s.name)
+      .filter(s => !prefs.removed.includes(s)).concat(prefs.added, manualSkills),
+    [analysis, manualSkills, prefs]
   );
+  // The level the user confirmed decides internship-first ranking and the
+  // years used for seniority checks.
+  const screeningYears = prefs.level === 'experienced'
+    ? Math.max(1, analysis?.profile?.screening_years ?? analysis?.profile?.years_experience ?? 1)
+    : Math.min(0.9, analysis?.profile?.screening_years ?? 0);
 
   const search = async () => {
     if (!roles.length) {
@@ -117,11 +175,12 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
     try {
       const res = await api.searchJobs({
         roles, skills,
-        years_experience: analysis?.profile?.screening_years ?? analysis?.profile?.years_experience ?? 0,
+        years_experience: screeningYears,
         cities: filters.cities,
         max_age_days: filters.maxAge || null,
-        student: Boolean(analysis?.profile?.student),
+        student: prefs.level === 'student',
       });
+      setEditing(false);
       setResults({ ...res, key: JSON.stringify([roles, filters]) });
       if (analysis) rate((res.jobs || []).filter(j => j.has_description !== false && j.source !== 'network').slice(0, 10));
     } catch (err) {
@@ -131,13 +190,6 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
     }
   };
 
-  useEffect(() => {
-    if (!autoRan.current && roles.length && !results && !loading) {
-      autoRan.current = true;
-      search();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // 1-5 rating against the resume; up to 10 jobs per request.
   async function rate(list) {
@@ -146,7 +198,8 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
     setRating(todo.map(j => j.id));
     try {
       const res = await api.rateJobs({
-        resume_text: analysis.resume_text, profile: analysis.profile, audit: analysis.audit, cities: filters.cities,
+        resume_text: analysis.resume_text, cities: filters.cities, audit: analysis.audit,
+        profile: { ...analysis.profile, student: prefs.level === 'student', screening_years: screeningYears },
         jobs: todo.map(({ matched_skills, missing_skills, ...j }) => j),
       });
       setRatings(r => ({ ...r, ...Object.fromEntries(res.ratings.filter(x => x.rating).map(x => [x.id, x.rating])) }));
@@ -195,12 +248,26 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
         </div>
       )}
 
-      <div className="card filters" style={{ marginBottom: 18 }}>
-        <div className="filter-row">
-          <span className="label eyebrow">Roles</span>
-          {roles.map(r => <Chip key={r} onRemove={() => setRoles(roles.filter(x => x !== r))}>{r}</Chip>)}
-          <AddInput placeholder="+ Add role" onAdd={r => !roles.includes(r) && setRoles([...roles, r])} />
+      {analysis && editing && (
+        <ConfirmProfile analysis={analysis} roles={roles} setRoles={setRoles} prefs={prefs} setPrefs={setPrefs}
+          skills={skills} onSearch={search} loading={loading} />
+      )}
+      {analysis && !editing && (
+        <div className="row wrap small muted" style={{ gap: 10, marginBottom: 12 }}>
+          <CheckCircle2 size={15} color="var(--lime)" />
+          Searching as <b style={{ color: 'var(--ink)' }}>{LEVELS.find(l => l.value === prefs.level)?.label}</b> for {roles.join(', ')}
+          <button className="btn sm ghost" onClick={() => setEditing(true)}><Pencil size={13} /> Edit</button>
         </div>
+      )}
+
+      <div className="card filters" style={{ marginBottom: 18 }}>
+        {!analysis && (
+          <div className="filter-row">
+            <span className="label eyebrow">Roles</span>
+            {roles.map(r => <Chip key={r} onRemove={() => setRoles(roles.filter(x => x !== r))}>{r}</Chip>)}
+            <AddInput placeholder="+ Add role" onAdd={r => !roles.includes(r) && setRoles([...roles, r])} />
+          </div>
+        )}
         {!analysis && (
           <div className="filter-row">
             <span className="label eyebrow">Skills</span>
@@ -221,7 +288,7 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
           <Seg
             value={filters.maxAge || 0}
             onChange={v => setFilters(f => ({ ...f, maxAge: v }))}
-            options={[{ value: 0, label: 'Any time' }, { value: 7, label: '7 days' }, { value: 30, label: '30 days' }, { value: 90, label: '90 days' }]}
+            options={[{ value: 0, label: 'Any time' }, { value: 1, label: '24 hours' }, { value: 7, label: '7 days' }, { value: 30, label: '30 days' }, { value: 90, label: '90 days' }]}
           />
           <div className="spacer" />
           <button className="btn primary" onClick={search} disabled={loading || !roles.length}>
