@@ -63,6 +63,9 @@ PERSONAL_DETAIL_PATTERNS = {
 # PDF
 # --------------------------------------------------------------------------
 
+X_TOL = 1.5
+
+
 def _group_lines(words: List[Dict[str, Any]], tol: float = 3.0) -> List[List[Dict[str, Any]]]:
     lines: List[List[Dict[str, Any]]] = []
     for w in sorted(words, key=lambda w: (round(w["top"]), w["x0"])):
@@ -155,10 +158,13 @@ def _read_pdf(data: bytes) -> Dict[str, Any]:
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         layout["pages"] = len(pdf.pages)
         for page in pdf.pages:
-            words = page.extract_words(keep_blank_chars=False, use_text_flow=False, extra_attrs=["fontname"])
+            # LaTeX and tightly kerned PDFs put ~2pt between words and emit no
+            # space characters; pdfplumber's default 3pt tolerance glues them
+            # into "ProductManagement", which breaks every keyword match.
+            words = page.extract_words(x_tolerance=X_TOL, keep_blank_chars=False, use_text_flow=False, extra_attrs=["fontname"])
             for w in words[:400]:
                 layout["fonts"].add(re.sub(r"^[A-Z]{6}\+", "", w.get("fontname", "")).split("-")[0])
-            naive.append(page.extract_text(layout=False) or "")
+            naive.append(page.extract_text(x_tolerance=X_TOL, layout=False) or "")
             gutter = _find_gutter(words, float(page.width))
             if gutter:
                 layout["column_pages"] += 1

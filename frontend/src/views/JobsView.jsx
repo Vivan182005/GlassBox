@@ -94,7 +94,7 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
     try {
       const res = await api.searchJobs({
         roles, skills,
-        years_experience: analysis?.profile?.years_experience || 0,
+        years_experience: analysis?.profile?.screening_years ?? analysis?.profile?.years_experience ?? 0,
         cities: filters.cities,
         max_age_days: filters.maxAge || null,
       });

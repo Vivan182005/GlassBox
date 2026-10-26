@@ -1,11 +1,33 @@
 import axios from 'axios';
 
-const http = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || '', timeout: 180000 });
+// Production talks to the ML service directly. The old Node gateway was a pure
+// pass-through on a second free Render instance, and Render answers 429
+// ("hibernate-rate-limited") while a sleeping instance wakes, so it doubled
+// the cold-start pain for nothing. VITE_ML_URL overrides; dev uses Vite's proxy.
+const BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_ML_URL || 'https://glassbox-ml-service.onrender.com');
+
+const http = axios.create({ baseURL: BASE, timeout: 180000 });
+
+// Free Render instances sleep after ~15 minutes idle. While one wakes it
+// returns 429/502/503/504 or drops the connection, so retry with backoff.
+const RETRYABLE = new Set([429, 502, 503, 504]);
+const DELAYS = [2000, 4000, 8000, 12000, 15000, 15000];
+http.interceptors.response.use(undefined, async (err) => {
+  const cfg = err.config;
+  const status = err.response?.status;
+  const retryable = cfg && (RETRYABLE.has(status) || (!err.response && err.code !== 'ECONNABORTED'));
+  if (!retryable) throw err;
+  cfg.__try = (cfg.__try || 0) + 1;
+  if (cfg.__try > DELAYS.length) throw err;
+  await new Promise(r => setTimeout(r, DELAYS[cfg.__try - 1]));
+  return http(cfg);
+});
 
 export const errorMessage = (err) =>
   err?.response?.data?.detail ||
   (err?.code === 'ECONNABORTED' ? 'The request timed out. The service may be waking up, so try again.' : null) ||
-  (err?.response ? `Request failed (${err.response.status})` : 'Could not reach the GlassBox service. Is it running?');
+  ([429, 502, 503, 504].includes(err?.response?.status) ? 'The analysis service is still waking up (free hosting sleeps when idle). Give it a minute and try again.' : null) ||
+  (err?.response ? `Request failed (${err.response.status})` : 'Could not reach the GlassBox service. It may be waking up, so try again in a minute.');
 
 export const api = {
   health: () => http.get('/api/health').then(r => r.data),

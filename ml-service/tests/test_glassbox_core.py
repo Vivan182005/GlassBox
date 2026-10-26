@@ -12,7 +12,7 @@ from jobs.boards import india_cities_in, is_india
 from jobs.discovery import title_match, title_level
 from matching.ats_check import years_required, degree_rank, run_check
 from matching.skills_lexicon import find_skills, term_in_text, canonicalize
-from parsing.profile_extractor import compute_experience_years, detect_degree
+from parsing.profile_extractor import compute_experience_years, detect_degree, experience_from_entries, _split_roles, _work_section
 from parsing.resume_reader import read_text, audit, parse_score, detect_sections
 from explainability.fairness import calculate_fairness_metrics, calculate_mitigated_fairness_metrics
 from explainability.explainer import explainer_instance
@@ -122,6 +122,36 @@ class TestJobsAndAts(unittest.TestCase):
         self.assertIn(result["verdict"], ("pass", "borderline"))
         self.assertFalse(any(k["type"] == "experience" for k in result["knockouts"]))
         self.assertFalse(any(k["type"] == "degree" for k in result["knockouts"]))
+
+
+class TestFresherExperience(unittest.TestCase):
+    """A 2025 graduate with one internship was read as 4.9 years, mid level:
+    degree and fellowship dates were summed and 'Jul–Nov2024' wasn't parsed."""
+    TEXT = ("Experience\nBosch Automotive Electronics — Data Analyst Intern   Bengaluru | Jul–Nov2024\n"
+            "• Built Tableau dashboards\nEducation&Certifications\n"
+            "Vellore Institute of Technology — B.Tech, CSE   2021–2025 | GPA 7.7/10\n"
+            "NextLeap — Product Management Fellowship, Cohort 47   Mar–Jun2026\n")
+
+    def test_shared_year_range_and_education_excluded(self):
+        now = datetime.date(2026, 10, 1)
+        self.assertNotIn("2021", _work_section(self.TEXT))
+        self.assertEqual(compute_experience_years(self.TEXT, _work_section(self.TEXT), now=now), (0.4, 1))
+        # Even without a work section, degree and fellowship lines are skipped.
+        self.assertEqual(compute_experience_years(self.TEXT, now=now), (0.4, 1))
+
+    def test_job_entries_split_internships(self):
+        out = experience_from_entries([
+            {"title": "Data Analyst Intern", "start": "Jul 2024", "end": "Nov 2024", "is_internship": True},
+            {"title": "Analyst", "start": "Jan 2025", "end": "Present"},
+        ], now=datetime.date(2026, 1, 1))
+        self.assertEqual(out, {"full_time": 1.1, "internship": 0.4})
+
+    def test_headline_split_into_roles(self):
+        self.assertEqual(_split_roles(["AI Product | Associate Product Manager, Product Analyst"]),
+                         ["AI Product", "Associate Product Manager", "Product Analyst"])
+
+    def test_ambiguous_aliases(self):
+        self.assertEqual(find_skills("Sentence Transformers, n8n onboarding, faster monitoring"), {})
 
 
 class TestFairnessLab(unittest.TestCase):

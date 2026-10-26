@@ -44,7 +44,7 @@ export default function CompanyView({ analysis, roles, openCheck, notify, meta }
       setResult(await api.lookupCompany({
         company, refresh, roles,
         skills: (analysis?.profile?.skills || []).map(s => s.name),
-        years_experience: analysis?.profile?.years_experience || 0,
+        years_experience: analysis?.profile?.screening_years ?? analysis?.profile?.years_experience ?? 0,
       }));
     } catch (err) {
       notify(errorMessage(err), 'error');

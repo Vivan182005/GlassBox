@@ -78,13 +78,35 @@ def _month(name: Optional[str], num: Optional[str], default: int) -> int:
     return default
 
 
-def compute_experience_years(text: str, work_text: Optional[str] = None, now: Optional[datetime.date] = None) -> Tuple[float, int]:
-    """Sums date ranges (merging overlaps) found in the work/experience part of
-    the resume. Education ranges are excluded when a work section can be isolated."""
-    now = now or datetime.date.today()
-    source = work_text if work_text else text
+# "Jul–Nov 2024" shares one year across both months; spell it out so the
+# range pattern sees "Jul 2024 – Nov 2024".
+_SHARED_YEAR = re.compile(rf"\b({_MONTH_NAMES})\.?\s*(-|–|—|to)\s*({_MONTH_NAMES})\.?,?\s*((?:19|20)\d{{2}})", re.IGNORECASE)
+_NOT_WORK = re.compile(r"\b(b\.?\s?tech|b\.?e\b|m\.?\s?tech|bachelor|master|degree|university|college|school|gpa|cgpa|"
+                       r"fellowship|cohort|course|certification|bootcamp|semester|class of|batch)\b", re.IGNORECASE)
+
+
+def _merge_months(intervals: List[Tuple[int, int]]) -> int:
+    if not intervals:
+        return 0
+    intervals = sorted(intervals)
+    merged = [intervals[0]]
+    for s, e in intervals[1:]:
+        if s <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    # An inclusive "Jul–Nov" is five months of work, not four.
+    return sum(e - s + 1 for s, e in merged)
+
+
+def _ranges(text: str, now: datetime.date, skip_education: bool = False) -> List[Tuple[int, int]]:
+    text = _SHARED_YEAR.sub(lambda m: f"{m.group(1)} {m.group(4)} {m.group(2)} {m.group(3)} {m.group(4)}", text)
     intervals = []
-    for m in _RANGE.finditer(source):
+    for m in _RANGE.finditer(text):
+        if skip_education:
+            ls, le = text.rfind("\n", 0, m.start()) + 1, text.find("\n", m.end())
+            if _NOT_WORK.search(text[ls: le if le != -1 else len(text)]):
+                continue
         sy = _year(m.group("sy"))
         if not sy or sy < 1980 or sy > now.year + 1:
             continue
@@ -96,21 +118,37 @@ def compute_experience_years(text: str, work_text: Optional[str] = None, now: Op
             if not ey:
                 continue
             em = _month(m.group("em"), m.group("en"), 12 if not m.group("sm") and not m.group("sn") else 1)
-        start, end = sy * 12 + sm, ey * 12 + em
+        start, end = sy * 12 + sm, min(ey * 12 + em, now.year * 12 + now.month)
         if end < start or end - start > 180:
             continue
         intervals.append((start, end))
-    if not intervals:
-        return 0.0, 0
-    intervals.sort()
-    merged = [intervals[0]]
-    for s, e in intervals[1:]:
-        if s <= merged[-1][1] + 1:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
-        else:
-            merged.append((s, e))
-    months = sum(e - s for s, e in merged)
-    return round(months / 12.0, 1), len(intervals)
+    return intervals
+
+
+def compute_experience_years(text: str, work_text: Optional[str] = None, now: Optional[datetime.date] = None) -> Tuple[float, int]:
+    """Sums date ranges (merging overlaps) found in the work/experience part of
+    the resume. Lines that read as education, fellowships or courses are skipped."""
+    now = now or datetime.date.today()
+    intervals = _ranges(work_text if work_text else text, now, skip_education=True)
+    return round(_merge_months(intervals) / 12.0, 1), len(intervals)
+
+
+def experience_from_entries(entries: List[Dict[str, Any]], now: Optional[datetime.date] = None) -> Optional[Dict[str, float]]:
+    """Years from the structured job list (title, company, start, end). Returns
+    None when no entry has dates the range parser can read."""
+    now = now or datetime.date.today()
+    full, intern, parsed = [], [], 0
+    for e in entries:
+        span = f"{e.get('start') or ''} - {e.get('end') or ''}"
+        iv = _ranges(span, now)
+        if not iv:
+            continue
+        parsed += 1
+        is_intern = bool(e.get("is_internship")) or bool(re.search(r"\bintern|trainee|apprentice", str(e.get("title") or ""), re.IGNORECASE))
+        (intern if is_intern else full).extend(iv)
+    if not parsed:
+        return None
+    return {"full_time": round(_merge_months(full) / 12.0, 1), "internship": round(_merge_months(intern) / 12.0, 1)}
 
 
 def _work_section(text: str) -> Optional[str]:
@@ -119,7 +157,7 @@ def _work_section(text: str) -> Optional[str]:
         return None
     after = text[m.end():]
     nxt = re.search(r"(?im)^\s*(education|academic\w*|projects?|skills|technical skills|certifications?|achievements|awards|"
-                    r"positions of responsibility|extra[- ]?curricular\w*|publications|languages|interests)\s*:?\s*$", after)
+                    r"positions of responsibility|extra[- ]?curricular\w*|publications|languages|interests|portfolio)\b[^\n]{0,40}$", after)
     return after[: nxt.start()] if nxt else after
 
 
@@ -208,6 +246,18 @@ def _guess_roles(skills: List[str]) -> List[str]:
     return [role for score, role in scored if score >= 0.34][:4]
 
 
+def _split_roles(items: List[Any]) -> List[str]:
+    out: List[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        for part in re.split(r"\s*(?:\||,|/(?=\s)|·|•|;)\s*", item):
+            part = part.strip(" -–")
+            if 2 < len(part) <= 60 and part.lower() not in {o.lower() for o in out}:
+                out.append(part)
+    return out
+
+
 def _seniority(years: float) -> str:
     if years < 1:
         return "Fresher / Entry level"
@@ -225,10 +275,11 @@ SYSTEM_PROMPT = (
     "{\n"
     '  "name": string|null,\n'
     '  "headline": "the role this person is targeting or currently doing, inferred from THIS resume",\n'
-    '  "target_roles": ["3-5 realistic job titles this person should search for in India, most relevant first"],\n'
+    '  "target_roles": ["3-5 realistic job titles this person should search for in India, most relevant first; one title per item, matched to their actual seniority (a fresher gets entry-level titles)"],\n'
     '  "location": "city if stated, else null",\n'
     '  "education": {"degree": string|null, "field": string|null, "college": string|null, "graduation_year": int|null, "gpa": number|null, "gpa_scale": number|null},\n'
-    '  "experience": [{"title": string, "company": string, "start": "Mon YYYY", "end": "Mon YYYY or Present", "is_internship": bool}],\n'
+    '  "experience": [{"title": string, "company": string, "start": "Mon YYYY", "end": "Mon YYYY or Present", "is_internship": bool}] '
+    '(jobs and internships only: never degrees, fellowships, courses, bootcamps or personal projects; "Jul–Nov 2024" means start "Jul 2024", end "Nov 2024"),\n'
     '  "years_experience": number (sum of non-overlapping professional and internship durations, 0 if none),\n'
     '  "skills": ["every concrete skill, tool, language, framework and methodology explicitly in the resume"],\n'
     '  "domain": "e.g. Software Engineering, Data / AI, Product, Design, Finance, Marketing, Sales, Operations, HR, Core Engineering",\n'
@@ -264,23 +315,31 @@ def extract_profile(text: str, layout_audit: Optional[Dict[str, Any]] = None) ->
 
     work = _work_section(text)
     computed_years, ranges = compute_experience_years(text, work)
-    llm_years = safe_float((llm or {}).get("years_experience"))
-    if llm_years is not None and (ranges == 0 or abs(llm_years - computed_years) <= 1.5):
-        years, source = llm_years, "ai_reviewed_dates"
+    entries = [e for e in ((llm or {}).get("experience") or []) if isinstance(e, dict)]
+    from_entries = experience_from_entries(entries)
+    internship_years = 0.0
+    if from_entries is not None:
+        # The AI's job list is anchored to titles and companies, so it isn't
+        # fooled by degree, fellowship or project dates the way a raw scan is.
+        years, internship_years, source = from_entries["full_time"] + from_entries["internship"], from_entries["internship"], "job_entries"
     elif ranges:
         years, source = computed_years, "date_ranges"
     else:
         years, source = 0.0, "none_found"
         warnings.append("No employment date ranges were found, so experience is counted as 0 years.")
+    full_time_years = round(max(0.0, years - internship_years), 1)
 
     edu = (llm or {}).get("education") or {}
-    roles = [r for r in ((llm or {}).get("target_roles") or []) if isinstance(r, str) and r.strip()]
+    roles = _split_roles((llm or {}).get("target_roles") or [])
     headline = (llm or {}).get("headline")
     if not roles:
         roles = _guess_roles([s["name"] for s in skills])
         headline = headline or (roles[0] if roles else None)
-    if headline and headline not in roles:
-        roles.insert(0, headline)
+    # A headline like "AI Product | APM | Product Analyst" is several search
+    # titles, not one; each goes in as its own role.
+    for r in reversed(_split_roles([headline] if headline else [])):
+        if r.lower() not in {x.lower() for x in roles}:
+            roles.insert(0, r)
     if not llm:
         warnings.append("AI extraction was unavailable, so a rule-based reader was used. Role suggestions are less precise.")
 
@@ -295,8 +354,13 @@ def extract_profile(text: str, layout_audit: Optional[Dict[str, Any]] = None) ->
         "target_roles": roles[:5],
         "location": (llm or {}).get("location") or rules["location"],
         "years_experience": round(years, 1),
+        "full_time_years": full_time_years,
+        "internship_years": internship_years,
+        # What a recruiter's "N+ years" filter effectively credits: full-time
+        # work plus internships at half weight.
+        "screening_years": round(full_time_years + 0.5 * internship_years, 1),
         "experience_source": source,
-        "seniority": _seniority(years),
+        "seniority": _seniority(full_time_years),
         "experience": [e for e in ((llm or {}).get("experience") or []) if isinstance(e, dict)][:12],
         "education": {
             "degree": edu.get("degree") or detect_degree(text),

@@ -151,7 +151,7 @@ function ProfileCard({ profile, audit }) {
       </div>
       <div className="stack" style={{ gap: 8, marginTop: 16 }}>
         {profile.location && <div className="row small muted"><MapPin size={15} /> {profile.location}</div>}
-        <div className="row small muted"><Briefcase size={15} /> {profile.years_experience} yrs · {profile.seniority}</div>
+        <div className="row small muted"><Briefcase size={15} /> {experienceLabel(profile)} · {profile.seniority}</div>
         {(edu.degree || edu.college) && (
           <div className="row small muted" style={{ alignItems: 'flex-start' }}>
             <GraduationCap size={15} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -358,4 +358,12 @@ export default function ScanView({ analysis, onAnalyzed, onReset, goJobs, notify
       </div>
     </div>
   );
+}
+
+function experienceLabel(p) {
+  const ft = p.full_time_years ?? p.years_experience ?? 0;
+  const intern = p.internship_years || 0;
+  if (!intern) return `${ft} yrs experience`;
+  const months = Math.round(intern * 12);
+  return ft ? `${ft} yrs + ${months} mo internships` : `${months} mo internship experience`;
 }

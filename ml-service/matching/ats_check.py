@@ -201,7 +201,7 @@ def run_check(resume_text: str, profile: Dict[str, Any], audit_result: Dict[str,
     parse = parse_score(audit_result, ats)
     title = _title_alignment(jd.get("title") or job_title, resume_text, profile.get("headline"))
 
-    years = float(profile.get("years_experience") or 0)
+    years = float(profile.get("screening_years") if profile.get("screening_years") is not None else profile.get("years_experience") or 0)
     min_years = jd.get("min_years")
     knockouts = []
     if min_years:
@@ -209,7 +209,8 @@ def run_check(resume_text: str, profile: Dict[str, Any], audit_result: Dict[str,
         exp_score = 100 if gap <= 0 else 75 if gap <= 1 else max(0, 100 - 35 * gap)
         if gap > 0:
             knockouts.append({"type": "experience", "severity": "high" if gap >= 2 else "medium",
-                              "detail": f"Asks for {min_years:g}+ years; your resume shows {years:g}."})
+                              "detail": f"Asks for {min_years:g}+ years; your resume shows {years:g}"
+                                        + (" (internships counted at half weight)." if profile.get("internship_years") else ".")})
     else:
         exp_score = 85
     req_degree = jd.get("degree")

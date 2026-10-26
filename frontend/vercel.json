@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://glassbox-gateway.onrender.com/api/:path*"
+      "destination": "https://glassbox-ml-service.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",

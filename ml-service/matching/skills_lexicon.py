@@ -117,7 +117,7 @@ _SKILLS: List[Tuple[str, str, List[str]]] = [
     ("Git", "DevOps", ["git", "github", "gitlab", "bitbucket", "version control"]),
     ("Linux", "DevOps", ["linux", "unix", "ubuntu", "centos", "rhel"]),
     ("Nginx", "DevOps", ["nginx", "apache http", "load balancer", "load balancing"]),
-    ("Monitoring & Observability", "DevOps", ["prometheus", "grafana", "datadog", "new relic", "splunk", "observability", "monitoring", "opentelemetry"]),
+    ("Monitoring & Observability", "DevOps", ["prometheus", "grafana", "datadog", "new relic", "splunk", "observability", "opentelemetry", "application monitoring", "infrastructure monitoring"]),
     ("Kafka", "Data Engineering", ["kafka", "apache kafka", "kinesis", "pub/sub", "pubsub"]),
     ("RabbitMQ", "Backend", ["rabbitmq", "message queue", "message queues", "sqs", "celery"]),
     ("Serverless", "Cloud", ["serverless", "cloud functions"]),
@@ -153,7 +153,7 @@ _SKILLS: List[Tuple[str, str, List[str]]] = [
 
     # --- AI / ML ---
     ("Machine Learning", "AI / ML", ["machine learning", "ml models", "ml model", "supervised learning", "unsupervised learning", "predictive modeling", "predictive modelling"]),
-    ("Deep Learning", "AI / ML", ["deep learning", "neural networks", "neural network", "cnn", "rnn", "lstm", "transformers"]),
+    ("Deep Learning", "AI / ML", ["deep learning", "neural networks", "neural network", "cnn", "rnn", "lstm", r"re:(?i)(?<!sentence )(?<!sentence-)(?<![A-Za-z])transformers\b"]),
     ("NLP", "AI / ML", ["nlp", "natural language processing", "text classification", "named entity recognition", "ner", "spacy", "nltk"]),
     ("Computer Vision", "AI / ML", ["computer vision", "image processing", "object detection", "opencv", "yolo", "image classification"]),
     ("Generative AI", "AI / ML", ["generative ai", "genai", "gen ai", "llm", "llms", "large language models", "large language model", "gpt", "prompt engineering", "fine-tuning", "fine tuning", "lora"]),
@@ -211,7 +211,7 @@ _SKILLS: List[Tuple[str, str, List[str]]] = [
     ("Supply Chain", "Business", ["supply chain", "logistics", "procurement", "inventory management", "vendor management", "sourcing"]),
     ("Consulting", "Business", ["consulting", "management consulting", "strategy consulting"]),
     ("Strategy", "Business", ["business strategy", "strategic planning", "market research", "competitive analysis", "market sizing"]),
-    ("Recruitment", "HR", ["recruitment", "talent acquisition", "sourcing candidates", "onboarding"]),
+    ("Recruitment", "HR", ["recruitment", "talent acquisition", "sourcing candidates", "employee onboarding"]),
     ("HR Operations", "HR", ["hr operations", "payroll", "hris", "employee relations", "performance management", "compensation and benefits"]),
 
     # --- Hardware / embedded ---

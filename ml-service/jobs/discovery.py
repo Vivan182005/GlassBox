@@ -130,12 +130,24 @@ def title_match(title: str, roles: List[str], expansion: Dict[str, List[str]]) -
         return 1.0
     if any(_phrase_in(p, t) for p in expansion["include"]):
         return 0.8
+    # Last resort: most of a role's distinctive words appear in the title.
+    # Generic words ("manager", "analyst") never count on their own, or
+    # "Associate Product Manager" would match "Relationship Manager".
     best = 0.0
     for r in roles:
-        toks = [w for w in re.findall(r"[a-z0-9+#/]+", r.lower()) if w not in {"senior", "junior", "associate", "lead", "i", "ii", "iii"}]
-        if toks:
-            best = max(best, sum(1 for w in toks if _phrase_in(w, t)) / len(toks))
+        toks = [w for w in re.findall(r"[a-z0-9+#/]+", r.lower()) if w not in _SENIORITY_WORDS]
+        distinctive = [w for w in toks if w not in _GENERIC_TITLE_WORDS]
+        if not distinctive:
+            continue
+        hits = sum(1 for w in distinctive if _phrase_in(w, t))
+        if hits and sum(1 for w in toks if _phrase_in(w, t)) / len(toks) >= 0.6:
+            best = max(best, hits / len(distinctive))
     return 0.45 if best >= 0.5 else 0.0
+
+
+_SENIORITY_WORDS = {"senior", "sr", "junior", "jr", "associate", "lead", "i", "ii", "iii", "intern", "trainee", "-", "&", "/"}
+_GENERIC_TITLE_WORDS = {"manager", "analyst", "engineer", "developer", "specialist", "executive", "associate", "consultant",
+                        "officer", "lead", "head", "intern", "of", "and", "the", "for", "ai"}
 
 
 def score_job(job: Dict[str, Any], roles: List[str], expansion, cand_skills: Dict[str, int], cand_years: float) -> Dict[str, Any]:
@@ -171,7 +183,9 @@ def score_job(job: Dict[str, Any], roles: List[str], expansion, cand_skills: Dic
             # "Senior" titles at many Indian companies start at 3-4 years.
             seniority, seniority_note = max(seniority, 0.85), None
 
-    fit = 0.42 * tscore + 0.38 * skill_score + 0.20 * seniority
+    # Seniority scales the fit instead of adding to it: a perfect title and
+    # skill match is still a long shot when the job wants 4 more years.
+    fit = (0.52 * tscore + 0.48 * skill_score) * (0.5 + 0.5 * seniority)
     return {
         **job,
         "fit": int(round(min(fit, 1.0) * 100)),
