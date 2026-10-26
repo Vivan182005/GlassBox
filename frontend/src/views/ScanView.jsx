@@ -4,7 +4,7 @@ import {
   Mail, Phone, Linkedin, Github, AlertTriangle, ScanLine, Eye,
 } from 'lucide-react';
 import { api, errorMessage } from '../api';
-import { Ring, Bar, Spinner, Chip, AddInput } from '../components/ui';
+import { Ring, Bar, Spinner, Chip, AddInput } from '../components/ui/primitives';
 import { scoreColor, initials } from '../lib/format';
 
 const STEPS = ['Reading layout & fonts', 'Extracting your profile', 'Running 15 ATS parser simulations', 'Writing your X-ray'];

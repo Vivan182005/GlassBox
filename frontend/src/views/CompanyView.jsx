@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Search, Check, X, CircleDashed, ExternalLink, ArrowUpRight, ShieldCheck, HelpCircle, Sparkles, MapPin, ScanLine, Clock } from 'lucide-react';
 import { api, errorMessage } from '../api';
-import { AtsBadge, CompanyLogo, Spinner } from '../components/ui';
+import { AtsBadge, CompanyLogo, Spinner } from '../components/ui/primitives';
 import { atsColor, scoreColor, postedLabel } from '../lib/format';
 
 const QUICK = ['Zepto', 'Razorpay', 'Swiggy', 'Flipkart', 'Adobe', 'Paytm', 'Infosys', 'Freshworks'];

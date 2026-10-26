@@ -1,14 +1,50 @@
 import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import Nav from './components/Nav';
 import CheckDrawer from './components/CheckDrawer';
-import { Toast, Spinner } from './components/ui';
+import { Toast, Spinner } from './components/ui/primitives';
 import ScanView from './views/ScanView';
 import JobsView, { cityFromLocation } from './views/JobsView';
 import CompanyView from './views/CompanyView';
-
-const FairnessView = lazy(() => import('./views/FairnessView'));
+import HalftoneWordmarkFooter from '@/components/ui/halftone-wordmark-footer';
 import { api } from './api';
 import { storage } from './lib/format';
+
+const FairnessView = lazy(() => import('./views/FairnessView'));
+
+const VIEWS = ['scan', 'jobs', 'company', 'fairness'];
+const viewFromHash = () => {
+  const h = window.location.hash.replace('#', '');
+  return VIEWS.includes(h) ? h : null;
+};
+
+const FOOTER_COLUMNS = [
+  {
+    title: 'Product',
+    links: [
+      { label: 'Resume X-ray', href: '#scan' },
+      { label: 'Jobs in India', href: '#jobs' },
+      { label: 'ATS Lookup', href: '#company' },
+      { label: 'Fairness Lab', href: '#fairness' },
+    ],
+  },
+  {
+    title: 'Search India',
+    links: [
+      { label: 'LinkedIn Jobs', href: 'https://www.linkedin.com/jobs/search/?location=India' },
+      { label: 'Naukri', href: 'https://www.naukri.com/' },
+      { label: 'Instahyre', href: 'https://www.instahyre.com/' },
+      { label: 'Wellfound', href: 'https://wellfound.com/jobs' },
+    ],
+  },
+  {
+    title: 'Open source',
+    links: [
+      { label: 'GitHub', href: 'https://github.com/Vivan182005/GlassBox' },
+      { label: 'Methodology', href: 'https://github.com/Vivan182005/GlassBox/blob/main/docs/methodology.md' },
+      { label: 'Report an issue', href: 'https://github.com/Vivan182005/GlassBox/issues' },
+    ],
+  },
+];
 
 const DEFAULT_FEATURES = {
   years_experience: 2, skill_count: 8, college_tier: 'Tier 2/3', employment_gap_months: 0, has_internship: true,
@@ -16,7 +52,7 @@ const DEFAULT_FEATURES = {
 };
 
 export default function App() {
-  const [view, setView] = useState(() => storage.get('gb.view', 'scan'));
+  const [view, setView] = useState(() => viewFromHash() || storage.get('gb.view', 'scan'));
   const [analysis, setAnalysis] = useState(() => storage.get('gb.analysis'));
   const [roles, setRoles] = useState(() => storage.get('gb.roles', []));
   const [filters, setFilters] = useState(() => storage.get('gb.filters', { cities: [], maxAge: 0 }));
@@ -27,7 +63,18 @@ export default function App() {
   const [meta, setMeta] = useState(null);
   const [toast, setToast] = useState(null);
 
-  useEffect(() => { storage.set('gb.view', view); window.scrollTo({ top: 0 }); }, [view]);
+  useEffect(() => {
+    storage.set('gb.view', view);
+    if (window.location.hash !== `#${view}`) window.history.replaceState(null, '', `#${view}`);
+    window.scrollTo({ top: 0 });
+  }, [view]);
+
+  // Footer and shared links navigate by hash (#jobs, #company, …).
+  useEffect(() => {
+    const onHash = () => { const v = viewFromHash(); if (v) setView(v); };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   useEffect(() => { storage.set('gb.analysis', analysis); }, [analysis]);
   useEffect(() => { storage.set('gb.roles', roles); }, [roles]);
   useEffect(() => { storage.set('gb.filters', filters); }, [filters]);
@@ -75,13 +122,21 @@ export default function App() {
           </Suspense>
         )}
       </main>
-      <footer className="footer">
-        <div className="container row wrap" style={{ gap: 14 }}>
-          <span>GlassBox simulates documented ATS behaviour. It isn't affiliated with any ATS vendor or employer.</span>
-          <div className="spacer" />
-          <span>Jobs are read live from public company career boards.</span>
-        </div>
-      </footer>
+      <HalftoneWordmarkFooter
+        wordmark="glassbox"
+        label="GlassBox · ©2026"
+        meta="Simulated ATS behaviour · not affiliated with any vendor"
+        columns={FOOTER_COLUMNS}
+        palette={{ background: '#05060a', ink: '#eef1f8', warm: '#2fd8f0' }}
+        fontFamily="'Geist', 'Inter', system-ui, sans-serif"
+        fontWeight={700}
+        monoFamily="'Geist Mono', 'JetBrains Mono', ui-monospace, monospace"
+        dotGap={6}
+        radius={90}
+        crop={0.22}
+        height="clamp(380px, 46vw, 540px)"
+        className="gb-footer"
+      />
       {checkJob && <CheckDrawer job={checkJob} analysis={analysis} onClose={() => setCheckJob(null)} notify={notify} goScan={() => setView('scan')} />}
       <Toast message={toast?.message} kind={toast?.kind} onClose={() => setToast(null)} />
     </>

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, MapPin, Clock, ExternalLink, ScanLine, Radar, ArrowUpRight, ClipboardPaste, AlertCircle } from 'lucide-react';
 import { api, errorMessage } from '../api';
-import { AtsBadge, CompanyLogo, Chip, AddInput, Seg, Spinner } from '../components/ui';
+import { AtsBadge, CompanyLogo, Chip, AddInput, Seg, Spinner } from '../components/ui/primitives';
 import { scoreColor, postedLabel, atsColor } from '../lib/format';
 
 const MAIN_CITIES = ['Bengaluru', 'Hyderabad', 'Pune', 'Mumbai', 'Delhi NCR', 'Chennai', 'Remote'];

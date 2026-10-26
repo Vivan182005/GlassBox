@@ -510,7 +510,7 @@ button.chip:hover { border-color: var(--border-strong); color: var(--text); }
 .toast.error { border-color: rgba(255, 95, 109, 0.5); }
 .spin, .animate-spin { animation: spin 0.9s linear infinite; }
 .skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.09), rgba(255,255,255,0.04)); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 10px; }
-.footer { border-top: 1px solid var(--border); padding: 26px 0 40px; color: var(--text-3); font-size: 12.5px; }
+.gb-footer { z-index: 1; border-top: 1px solid var(--border); margin-top: 40px; }
 .link { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border-strong); }
 .link:hover { border-color: var(--text); }
 details > summary { cursor: pointer; list-style: none; }

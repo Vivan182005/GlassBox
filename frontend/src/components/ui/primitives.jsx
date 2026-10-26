@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
-import { atsColor, scoreColor, initials } from '../lib/format';
+import { atsColor, scoreColor, initials } from '../../lib/format';
 
 export function Ring({ value = 0, size = 132, stroke = 10, label, color, sub }) {
   const r = (size - stroke) / 2;

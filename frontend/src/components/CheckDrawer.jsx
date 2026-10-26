@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, ExternalLink, Check, CircleDashed, XCircle, Wand2, ShieldAlert, Info, ScanLine, Copy } from 'lucide-react';
 import { api, errorMessage } from '../api';
-import { Ring, Bar, AtsBadge, CompanyLogo, Spinner } from './ui';
+import { Ring, Bar, AtsBadge, CompanyLogo, Spinner } from './ui/primitives';
 import { scoreColor, verdictLabel } from '../lib/format';
 
 const BREAKDOWN = [
