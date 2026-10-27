@@ -102,7 +102,7 @@ function MatchStep({ rating, check }) {
         {low && <div className="tiny" style={{ marginTop: 14, color: 'var(--amber)' }}>GlassBox suggests applying only at {APPLY_THRESHOLD.toFixed(1)}+. You can continue anyway.</div>}
       </div>
       <div className="card tight row wrap" style={{ gap: 18 }}>
-        <div className="stat"><b style={{ color: scoreColor(check.score) }}>{check.score}</b><span>ATS pass score today</span></div>
+        <div className="stat"><b style={{ color: scoreColor(check.score) }}>{check.score}</b><span>ATS keyword match today</span></div>
         <div className="stat"><b>{check.coverage.must_matched}/{check.coverage.must_total}</b><span>required keywords</span></div>
         <div className="stat"><b>{check.ats.name}</b><span>their ATS</span></div>
       </div>
@@ -110,22 +110,49 @@ function MatchStep({ rating, check }) {
   );
 }
 
-function ResumeStep({ tailored, decisions, setDecision, finalResume, job, analysis, notify }) {
+function pdfUrl(b64) {
+  if (!b64) return null;
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+}
+
+function Delta({ label, before, after, fmt = (v) => v, color, hint, busy }) {
+  const moved = after !== undefined && after !== null && after !== before;
+  return (
+    <div className="delta">
+      <div className="eyebrow">{label}</div>
+      <div className="row" style={{ gap: 10, alignItems: 'baseline', marginTop: 4 }}>
+        <b className="num" style={{ color: color(before) }}>{fmt(before)}</b>
+        <ArrowRight size={15} className="faint" />
+        <b className="num" style={{ color: color(after ?? before) }}>{busy ? <Spinner size={18} /> : fmt(after ?? before)}</b>
+        {moved && !busy && <span className="tiny" style={{ color: after > before ? 'var(--lime)' : 'var(--red)' }}>{after > before ? '+' : ''}{(after - before).toFixed(fmt === String ? 0 : 1).replace('.0', '')}</span>}
+      </div>
+      <div className="tiny faint" style={{ marginTop: 4 }}>{hint}</div>
+    </div>
+  );
+}
+
+function ResumeStep({ tailored, decisions, setDecision, finalResume, job, analysis, notify, sourcePdf, rendered, before }) {
   const [userTex, setUserTex] = useState(null);
   const [busy, setBusy] = useState(null);
   const [renderer, setRenderer] = useState(null);
+  const [showOriginal, setShowOriginal] = useState(false);
   const overleaf = useRef(null);
   const [texForOverleaf, setTexForOverleaf] = useState('');
+  const editedUrl = useMemo(() => pdfUrl(rendered?.pdf), [rendered?.pdf]);
+  const originalUrl = useMemo(() => pdfUrl(sourcePdf?.b64), [sourcePdf?.b64]);
+  useEffect(() => () => { if (editedUrl) URL.revokeObjectURL(editedUrl); }, [editedUrl]);
+  useEffect(() => () => { if (originalUrl) URL.revokeObjectURL(originalUrl); }, [originalUrl]);
 
   if (!tailored) {
     return (
       <div className="card">
-        <div className="row"><ShieldAlert size={17} color="var(--amber)" /><b>The tailored resume couldn't be written right now.</b></div>
+        <div className="row"><ShieldAlert size={17} color="var(--amber)" /><b>The edits couldn't be worked out right now.</b></div>
         <p className="small muted" style={{ marginTop: 6 }}>The AI service is busy. Close this and press Apply again in a minute; your original resume still works for the form.</p>
       </div>
     );
   }
-  const { before, after } = tailored;
+  const status = Object.fromEntries((rendered?.report || []).map(r => [r.id, r]));
   const changes = [];
   ['experience', 'projects'].forEach(sec => (tailored.resume[sec] || []).forEach((it, i) => (it.bullets || []).forEach((b, j) => {
     if (b.text !== b.original) changes.push({ id: `${sec}:${i}:${j}`, where: sec === 'experience' ? `${it.company}` : it.name, b });
@@ -156,6 +183,10 @@ function ResumeStep({ tailored, decisions, setDecision, finalResume, job, analys
     } catch (err) { notify(errorMessage(err), 'error'); } finally { setBusy(null); }
   };
   const download = async (ext) => {
+    if (ext === 'pdf' && rendered?.pdf) {
+      downloadBlob(new Blob([Uint8Array.from(atob(rendered.pdf), c => c.charCodeAt(0))], { type: 'application/pdf' }), `${fileName}.pdf`);
+      return;
+    }
     setBusy(ext);
     try {
       const { blob, headers } = await api.resumeFileWithHeaders(ext, body());
@@ -172,60 +203,85 @@ function ResumeStep({ tailored, decisions, setDecision, finalResume, job, analys
       notify('Using your own .tex: only the accepted edits are swapped in.');
     });
   };
-  const accepted = changes.filter(c => decisions[c.id] !== false).length + skillChanges.filter(c => decisions[c.id] !== false).length;
+  const all = [...changes, ...skillChanges];
+  const kept = all.filter(c => decisions[c.id] !== false && status[c.id]?.applied !== false).length;
+  const toggle = (id, on, skipped) => !skipped && setDecision(id, !on);
+
+  const EditCard = ({ id, head, children }) => {
+    const on = decisions[id] !== false;
+    const st = status[id];
+    const skipped = on && st && st.applied === false;
+    return (
+      <div className={`edit ${on && !skipped ? 'on' : 'off'}`}>
+        <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+          <span className="tiny faint" style={{ flex: 1 }}>{head}</span>
+          {skipped
+            ? <span className="chip sm warn" title={st.reason}>Not applied</span>
+            : (
+              <button className={`btn sm ${on ? 'ghost' : ''}`} onClick={() => toggle(id, on, skipped)}>
+                {on ? <><Undo2 size={13} /> Undo</> : <><Check size={13} /> Keep edit</>}
+              </button>
+            )}
+        </div>
+        {children(on && !skipped)}
+        {skipped && <div className="tiny" style={{ color: 'var(--amber)', marginTop: 6 }}>Left as it was: {st.reason}.</div>}
+      </div>
+    );
+  };
 
   return (
     <div className="stack" style={{ gap: 16 }}>
-      <div className="card">
-        <div className="row wrap" style={{ gap: 22 }}>
-          <div className="stat"><b style={{ color: scoreColor(before.score) }}>{before.score}</b><span>ATS score now</span></div>
-          <ArrowRight size={18} className="faint" />
-          <div className="stat"><b style={{ color: scoreColor(after.score) }}>{after.score}</b><span>with every edit kept</span></div>
-          <div className="stat"><b>{after.coverage.must_matched}/{after.coverage.must_total}</b><span>required keywords</span></div>
+      {sourcePdf?.b64 ? (
+        <div className="card">
+          <div className="row wrap" style={{ gap: 28 }}>
+            <Delta label="ATS keyword match" before={before.score} after={rendered?.check?.score} color={scoreColor} fmt={String}
+              busy={rendered?.loading} hint="Whether a recruiter's keyword search finds you. Wording changes this." />
+            <Delta label="Your rating" before={before.rating} after={rendered?.rating?.score} color={ratingColor} fmt={v => Number(v).toFixed(1)}
+              busy={rendered?.loading} hint="Whether you have what the job needs. Rewording rarely moves it." />
+            <Delta label="Required keywords found" before={before.coverage} after={rendered?.check ? rendered.check.coverage.must_matched : undefined}
+              color={() => 'var(--ink)'} fmt={v => `${v}/${before.total}`} busy={rendered?.loading} hint="Out of the job's must-haves." />
+          </div>
+          <p className="tiny faint" style={{ marginTop: 12 }}>
+            Both "after" numbers are measured on the edited PDF itself: GlassBox reads the new file back exactly as it read your original.
+          </p>
         </div>
-        <p className="small muted" style={{ marginTop: 12 }}>
-          Your resume stays yours: same sections, same order, same wording. GlassBox only inserts the job's words where a line already
-          shows that work (SQL next to PostgreSQL, never a tool you didn't use). Keep or undo each edit below.
-        </p>
-      </div>
+      ) : (
+        <div className="card" style={{ borderColor: 'var(--ochre)' }}>
+          <div className="row"><AlertTriangle size={16} color="var(--amber)" /><b>Upload your resume PDF to edit it in place</b></div>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            This scan came from pasted text or a Word file, so there's no PDF to edit. Scan the PDF on Resume X-ray and the edits will be
+            written into your own file, same fonts and spacing. Until then, use the formats below.
+          </p>
+        </div>
+      )}
 
-      {changes.length + skillChanges.length === 0 ? (
+      {all.length === 0 ? (
         <div className="card small muted">No edits needed: your resume already uses this job's wording wherever it truthfully can.</div>
       ) : (
         <div className="card">
-          <div className="card-head"><Sparkles size={17} /><div className="h3">{accepted} of {changes.length + skillChanges.length} edits kept</div></div>
+          <div className="card-head"><Sparkles size={17} /><div className="h3">{kept} of {all.length} edits in your PDF</div></div>
+          <p className="tiny faint" style={{ marginBottom: 10 }}>
+            GlassBox only inserts the job's words where that line already shows the work (SQL next to PostgreSQL). An edit that doesn't fit on the
+            lines it already uses is left out, so nothing on the page moves.
+          </p>
           <div className="stack" style={{ gap: 12 }}>
-            {changes.map(({ id, where, b }) => {
-              const on = decisions[id] !== false;
-              return (
-                <div key={id} className={`edit ${on ? 'on' : 'off'}`}>
-                  <div className="row" style={{ gap: 8, marginBottom: 6 }}>
-                    <span className="tiny faint" style={{ flex: 1 }}>{where}{b.keywords?.length ? ` · adds ${b.keywords.join(', ')}` : ''}</span>
-                    <button className={`btn sm ${on ? 'ghost' : ''}`} onClick={() => setDecision(id, !on)}>
-                      {on ? <><Undo2 size={13} /> Undo</> : <><Check size={13} /> Keep edit</>}
-                    </button>
-                  </div>
-                  <div className="small">{on ? <Inserted original={b.original} text={b.text} /> : b.original}</div>
-                </div>
-              );
-            })}
+            {changes.map(({ id, where, b }) => (
+              <EditCard key={id} id={id} head={`${where}${b.keywords?.length ? ` · adds ${b.keywords.join(', ')}` : ''}`}>
+                {(on) => <div className="small">{on ? <Inserted original={b.original} text={b.text} /> : b.original}</div>}
+              </EditCard>
+            ))}
             {skillChanges.map(({ id, g }) => {
-              const on = decisions[id] !== false;
               const added = g.items.filter(x => !g.original.includes(x));
               return (
-                <div key={id} className={`edit ${on ? 'on' : 'off'}`}>
-                  <div className="row" style={{ gap: 8, marginBottom: 6 }}>
-                    <span className="tiny faint" style={{ flex: 1 }}>Skills · {g.group}{added.length ? ` · adds ${added.join(', ')}` : ' · reordered for this job'}</span>
-                    <button className={`btn sm ${on ? 'ghost' : ''}`} onClick={() => setDecision(id, !on)}>
-                      {on ? <><Undo2 size={13} /> Undo</> : <><Check size={13} /> Keep edit</>}
-                    </button>
-                  </div>
-                  <div className="small">
-                    <b>{g.group}:</b> {(on ? g.items : g.original).map((x, i) => (
-                      <span key={x}>{i ? ', ' : ''}{on && added.includes(x) ? <mark className="ins">{x}</mark> : x}</span>
-                    ))}
-                  </div>
-                </div>
+                <EditCard key={id} id={id} head={`Skills · ${g.group}${added.length ? ` · adds ${added.join(', ')}` : ' · reordered for this job'}`}>
+                  {(on) => (
+                    <div className="small">
+                      <b>{g.group}:</b> {(on ? g.items : g.original).map((x, i) => (
+                        <span key={x}>{i ? ', ' : ''}{on && added.includes(x) ? <mark className="ins">{x}</mark> : x}</span>
+                      ))}
+                    </div>
+                  )}
+                </EditCard>
               );
             })}
           </div>
@@ -239,34 +295,50 @@ function ResumeStep({ tailored, decisions, setDecision, finalResume, job, analys
         </div>
       )}
 
-      <div className="card">
-        <div className="card-head"><FileCode2 size={17} /><div className="h3">Get it in your own style</div></div>
-        <p className="small muted" style={{ marginBottom: 12 }}>
+      {sourcePdf?.b64 && (
+        <div className="card">
+          <div className="row wrap" style={{ gap: 10, marginBottom: 12 }}>
+            <FileText size={17} />
+            <div className="h3" style={{ flex: 1 }}>Review: the exact file you'll send</div>
+            <div className="seg">
+              <button className={!showOriginal ? 'on' : ''} onClick={() => setShowOriginal(false)}>Edited</button>
+              <button className={showOriginal ? 'on' : ''} onClick={() => setShowOriginal(true)}>Original</button>
+            </div>
+            <button className="btn sm" onClick={() => download('pdf')} disabled={!rendered?.pdf}><Download size={13} /> PDF</button>
+          </div>
+          {rendered?.error && <div className="small" style={{ color: 'var(--red)', marginBottom: 8 }}>{rendered.error}</div>}
+          {(showOriginal ? originalUrl : editedUrl)
+            ? <iframe className="pdf-preview" title="Resume preview" src={`${showOriginal ? originalUrl : editedUrl}#toolbar=0&navpanes=0&view=FitH`} />
+            : <div className="empty" style={{ height: 300 }}><Spinner size={22} /></div>}
+        </div>
+      )}
+
+      <details className="card">
+        <summary className="row"><FileCode2 size={16} /><span className="h3" style={{ marginLeft: 8 }}>Other formats</span><div className="spacer" /><span className="tiny faint">LaTeX, Overleaf, Word</span></summary>
+        <p className="small muted" style={{ margin: '12px 0' }}>
           {userTex
             ? 'Using the .tex you uploaded: your exact template, with only the kept edits swapped in.'
-            : `Typeset like your original: ${FONT_NAMES[tailored.style?.family] || 'the same font'}, ${tailored.style?.paper === 'a4' ? 'A4' : 'Letter'}, same colours, headings and bullet style. For a pixel-exact match, upload your Overleaf source.`}
+            : `A LaTeX version typeset like your original (${FONT_NAMES[tailored.style?.family] || 'same font'}, ${tailored.style?.paper === 'a4' ? 'A4' : 'Letter'}). Handy if you edit in Overleaf; for applying, the PDF above is the exact one.`}
         </p>
         <div className="row wrap" style={{ gap: 8 }}>
-          <button className="btn primary" onClick={openOverleaf} disabled={!!busy}>{busy === 'overleaf' ? <Spinner /> : <ExternalLink size={14} />} Open in Overleaf</button>
-          <button className="btn" onClick={() => download('pdf')} disabled={!!busy}>{busy === 'pdf' ? <Spinner /> : <Download size={14} />} PDF</button>
+          <button className="btn" onClick={openOverleaf} disabled={!!busy}>{busy === 'overleaf' ? <Spinner /> : <ExternalLink size={14} />} Open in Overleaf</button>
           <button className="btn" onClick={downloadTex} disabled={!!busy}>{busy === 'tex' ? <Spinner /> : <Download size={14} />} .tex</button>
           <button className="btn ghost" onClick={() => download('docx')} disabled={!!busy}><Download size={14} /> Word</button>
+          {!sourcePdf?.b64 && <button className="btn ghost" onClick={() => download('pdf')} disabled={!!busy}><Download size={14} /> Plain PDF</button>}
           <label className="btn ghost" style={{ cursor: 'pointer' }}>
             <Upload size={14} /> {userTex ? 'Replace my .tex' : 'Use my .tex'}
             <input type="file" accept=".tex,text/x-tex,text/plain" onChange={onTexFile} style={{ display: 'none' }} />
           </label>
         </div>
         {renderer === 'basic' && (
-          <p className="tiny" style={{ marginTop: 10, color: 'var(--amber)' }}>
-            This PDF is the plain ATS-safe version: the server has no LaTeX engine yet. "Open in Overleaf" compiles the styled one in one click.
-          </p>
+          <p className="tiny" style={{ marginTop: 10, color: 'var(--amber)' }}>That PDF is the plain ATS-safe version, not your styling. Scan your PDF to get the in-place edit.</p>
         )}
         <form ref={overleaf} action="https://www.overleaf.com/docs" method="post" target="_blank" style={{ display: 'none' }}>
           <input type="hidden" name="snip" value={texForOverleaf} readOnly />
           <input type="hidden" name="snip_name" value={`${fileName}.tex`} readOnly />
           <input type="hidden" name="engine" value="pdflatex" readOnly />
         </form>
-      </div>
+      </details>
     </div>
   );
 }
@@ -352,7 +424,8 @@ function QuestionsStep({ rows, values, setValue, form }) {
   );
 }
 
-export default function ApplyDrawer({ job, analysis, cities, savedAnswers, setSavedAnswers, onApplied, onClose, notify, goScan }) {
+export default function ApplyDrawer({ job, analysis, sourcePdf, cities, savedAnswers, setSavedAnswers, onApplied, onClose, notify, goScan }) {
+  const [rendered, setRendered] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [values, setValues] = useState({});
@@ -409,6 +482,22 @@ export default function ApplyDrawer({ job, analysis, cities, savedAnswers, setSa
     return copy;
   }, [data, decisions]);
 
+  // Write the kept edits into the original PDF and measure the result, again
+  // whenever an edit is kept or undone.
+  useEffect(() => {
+    if (!sourcePdf?.b64 || !finalResume || !data) return undefined;
+    let live = true;
+    setRendered(r => ({ ...(r || {}), loading: true, error: null }));
+    const t = setTimeout(() => {
+      api.renderApplication({
+        source_pdf: sourcePdf.b64, resume: finalResume, profile: analysis.profile, audit: analysis.audit, job, cities,
+      }).then(res => live && setRendered({ ...res, loading: false }))
+        .catch(err => live && setRendered(r => ({ ...(r || {}), loading: false, error: errorMessage(err) })));
+    }, 350);
+    return () => { live = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finalResume, sourcePdf?.b64]);
+
   const blocking = useMemo(() => (data?.answers || []).filter(r => r.required && r.type !== 'file' && isEmpty(values[r.id])), [data, values]);
   const fileName = `${(analysis?.profile?.name || 'Resume').replace(/\s+/g, '_')}_${(job?.company || 'job').replace(/\W+/g, '_')}`;
 
@@ -424,7 +513,10 @@ export default function ApplyDrawer({ job, analysis, cities, savedAnswers, setSa
     navigator.clipboard?.writeText(answersText()).catch(() => {});
     setBusy(true);
     try {
-      if (finalResume) {
+      if (rendered?.pdf) {
+        // The exact file reviewed in the Resume step.
+        downloadBlob(new Blob([Uint8Array.from(atob(rendered.pdf), c => c.charCodeAt(0))], { type: 'application/pdf' }), `${fileName}.pdf`);
+      } else if (finalResume) {
         const { blob } = await api.resumeFileWithHeaders('pdf', {
           resume: finalResume, header: data.tailored.header, style: data.tailored.style, plan: data.tailored.plan,
           contact: analysis?.audit?.contact || {}, filename: fileName,
@@ -438,7 +530,8 @@ export default function ApplyDrawer({ job, analysis, cities, savedAnswers, setSa
     }
     onApplied({
       id: job.id, company: job.company, title: job.title, url: job.url, ats_id: job.ats_id, ats_name: job.ats_name,
-      rating: data.rating.score, ats_before: data.tailored?.before.score ?? data.check.score, ats_after: data.tailored?.after.score ?? null,
+      rating: rendered?.rating?.score ?? data.rating.score, ats_before: data.check.score,
+      ats_after: rendered?.check?.score ?? data.tailored?.after.score ?? null,
       status: 'applied', date: new Date().toISOString().slice(0, 10),
     });
     setDone(true);
@@ -510,7 +603,8 @@ export default function ApplyDrawer({ job, analysis, cities, savedAnswers, setSa
               {step === 0 && <MatchStep rating={data.rating} check={data.check} />}
               {step === 1 && (
                 <ResumeStep tailored={data.tailored} decisions={decisions} setDecision={(id, v) => setDecisions(d => ({ ...d, [id]: v }))}
-                  finalResume={finalResume} job={job} analysis={analysis} notify={notify} />
+                  finalResume={finalResume} job={job} analysis={analysis} notify={notify} sourcePdf={sourcePdf} rendered={rendered}
+                  before={{ score: data.check.score, rating: data.rating.score, coverage: data.check.coverage.must_matched, total: data.check.coverage.must_total }} />
               )}
               {step === 2 && <QuestionsStep rows={data.answers} values={values} setValue={setValue} form={data.form} />}
               {step === 3 && (
@@ -526,7 +620,12 @@ export default function ApplyDrawer({ job, analysis, cities, savedAnswers, setSa
                   <div className="card-head"><BadgeCheck size={17} /><div className="h3">Review and approve</div></div>
                   <ul className="checklist">
                     <li className={data.rating.score >= APPLY_THRESHOLD ? 'ok' : 'warn'}>Rated {data.rating.score.toFixed(1)}/5 ({data.rating.label})</li>
-                    {data.tailored && <li className="ok">Resume tailored: ATS {data.tailored.before.score} → {data.tailored.after.score}, {Object.values(decisions).filter(v => v === false).length} edit(s) undone</li>}
+                    {data.tailored && (
+                      <li className="ok">
+                        Resume: ATS keyword match {data.check.score} → {rendered?.check?.score ?? data.tailored.after.score}
+                        {rendered?.pdf ? ', reviewed in your own PDF' : ''}
+                      </li>
+                    )}
                     <li className={blocking.length ? 'bad' : 'ok'}>
                       {blocking.length ? `${blocking.length} required question(s) still need you` : `All ${data.answers.length} form questions answered`}
                       {blocking.length > 0 && <button className="btn sm ghost" onClick={() => setStep(2)}>Answer them</button>}

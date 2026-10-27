@@ -58,6 +58,7 @@ export default function App() {
   const [ratings, setRatings] = useState({});
   const [applications, setApplications] = useState(() => storage.get('gb.applications', []));
   const [savedAnswers, setSavedAnswers] = useState(() => storage.get('gb.answers', {}));
+  const [sourcePdf, setSourcePdf] = useState(() => storage.get('gb.sourcePdf'));
   const [health, setHealth] = useState(null);
   const [meta, setMeta] = useState(null);
   const [toast, setToast] = useState(null);
@@ -79,6 +80,7 @@ export default function App() {
   useEffect(() => { storage.set('gb.filters', filters); }, [filters]);
   useEffect(() => { storage.set('gb.applications', applications); }, [applications]);
   useEffect(() => { storage.set('gb.answers', savedAnswers); }, [savedAnswers]);
+  useEffect(() => { storage.set('gb.sourcePdf', sourcePdf); }, [sourcePdf]);
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));
@@ -109,7 +111,7 @@ export default function App() {
       <Nav view={view} setView={setView} health={health} />
       <main>
         {view === 'scan' && (
-          <ScanView analysis={analysis} onAnalyzed={onAnalyzed} onReset={reset} goJobs={() => setView('jobs')}
+          <ScanView analysis={analysis} onAnalyzed={onAnalyzed} onSourceFile={setSourcePdf} onReset={reset} goJobs={() => setView('jobs')}
             notify={notify} health={health} roles={roles} setRoles={setRoles} />
         )}
         {view === 'jobs' && (
@@ -124,7 +126,7 @@ export default function App() {
       </main>
       <Footer columns={FOOTER_COLUMNS} />
       {applyJob && (
-        <ApplyDrawer job={applyJob} analysis={analysis} cities={filters.cities} savedAnswers={savedAnswers} setSavedAnswers={setSavedAnswers}
+        <ApplyDrawer job={applyJob} analysis={analysis} sourcePdf={sourcePdf} cities={filters.cities} savedAnswers={savedAnswers} setSavedAnswers={setSavedAnswers}
           onApplied={(entry) => setApplications(list => [entry, ...list.filter(a => a.id !== entry.id)])}
           onClose={() => setApplyJob(null)} notify={notify} goScan={() => setView('scan')} />
       )}

@@ -20,7 +20,8 @@ case "$(uname -s)-$(uname -m)" in
 esac
 if [ ! -x "$DEST/tectonic" ]; then
   URL="https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${VERSION}/tectonic-${VERSION}-${TARGET}.tar.gz"
-  curl -fsSL "$URL" | tar -xz -C "$DEST"
+  # Optional: tailored PDFs are edited in place without it. Never fail the build.
+  curl -fsSL "$URL" | tar -xz -C "$DEST" || { echo "Tectonic download failed; LaTeX export stays Overleaf-only."; exit 0; }
 fi
 "$DEST/tectonic" --version
 # Compile each template variant once so its packages are cached in the build.

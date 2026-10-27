@@ -7,10 +7,10 @@ import { api, errorMessage } from '../api';
 import { Ring, Bar, Spinner, Chip, AddInput } from '../components/ui/primitives';
 import { scoreColor, initials } from '../lib/format';
 
-const STEPS = ['Reading layout & fonts', 'Extracting your profile', 'Running 15 ATS parser simulations', 'Writing your X-ray'];
+const STEPS = ['Reading layout & fonts', 'Extracting your profile', 'Checking what an ATS can read', 'Writing your X-ray'];
 const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
-function Upload({ onAnalyzed, notify, health }) {
+function Upload({ onAnalyzed, onSourceFile, notify, health }) {
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(0);
@@ -38,6 +38,14 @@ function Upload({ onAnalyzed, notify, health }) {
     if (!/\.(pdf|docx|txt)$/i.test(file.name)) {
       notify('Upload a PDF, DOCX or TXT resume.', 'error');
       return;
+    }
+    // Keep the original PDF: tailored versions are edited inside this file.
+    if (/\.pdf$/i.test(file.name) && file.size < 3_000_000) {
+      const reader = new FileReader();
+      reader.onload = () => onSourceFile({ name: file.name, b64: String(reader.result).split(',')[1] });
+      reader.readAsDataURL(file);
+    } else {
+      onSourceFile(null);
     }
     run({ file });
   };
@@ -72,8 +80,8 @@ function Upload({ onAnalyzed, notify, health }) {
           See your resume<br />the way the <span className="serif grad-text">machine</span> does.
         </h1>
         <p className="lede">
-          Upload your resume. GlassBox reads it like Workday, Greenhouse, Lever and 12 other ATS parsers do,
-          finds companies hiring in India for your keywords, and tells you whether you'd get through their ATS.
+          Upload your resume. GlassBox checks what an applicant tracking system can actually read from it,
+          finds companies hiring in India for your keywords, and tells you, job by job, whether a recruiter's search would find you.
         </p>
 
         {!pasteMode ? (
@@ -102,7 +110,7 @@ function Upload({ onAnalyzed, notify, health }) {
             <div className="row" style={{ marginTop: 12 }}>
               <button className="btn ghost" onClick={() => setPasteMode(false)}>Upload a file instead</button>
               <div className="spacer" />
-              <button className="btn primary" disabled={text.trim().length < 80} onClick={() => run({ text })}>
+              <button className="btn primary" disabled={text.trim().length < 80} onClick={() => { onSourceFile(null); run({ text }); }}>
                 <ScanLine size={16} /> X-ray it
               </button>
             </div>
@@ -112,7 +120,7 @@ function Upload({ onAnalyzed, notify, health }) {
 
         <div className="stats-strip">
           <div className="stat"><b>{companies}</b><span>company career sites scanned live</span></div>
-          <div className="stat"><b>15</b><span>ATS parsers simulated</span></div>
+          <div className="stat"><b>10</b><span>parse checks on your file</span></div>
           <div className="stat"><b>14</b><span>Indian cities + remote</span></div>
         </div>
       </section>
@@ -253,15 +261,11 @@ function XRay({ analysis, atsId, atsName }) {
   );
 }
 
-export default function ScanView({ analysis, onAnalyzed, onReset, goJobs, notify, health, roles, setRoles }) {
-  const [atsId, setAtsId] = useState('workday');
-  if (!analysis) return <div className="container page"><Upload onAnalyzed={onAnalyzed} notify={notify} health={health} /></div>;
+export default function ScanView({ analysis, onAnalyzed, onSourceFile, onReset, goJobs, notify, health, roles, setRoles }) {
+  if (!analysis) return <div className="container page"><Upload onAnalyzed={onAnalyzed} onSourceFile={onSourceFile} notify={notify} health={health} /></div>;
 
-  const { profile, audit, ats_scores: scores, readability } = analysis;
+  const { profile, audit } = analysis;
   const issues = [...audit.issues].sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
-  const selected = scores.find(s => s.id === atsId) || scores[0];
-  const best = scores[scores.length - 1];
-  const worst = scores[0];
   const first = (profile.name || '').split(' ')[0];
 
   return (
@@ -296,39 +300,8 @@ export default function ScanView({ analysis, onAnalyzed, onReset, goJobs, notify
         </div>
 
         <div className="stack">
-          <div className="card glow">
-            <div className="row wrap" style={{ gap: 26, alignItems: 'center' }}>
-              <Ring value={readability} size={150} label="READABILITY" />
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <div className="h3">ATS readability</div>
-                <p className="muted small" style={{ marginTop: 6 }}>
-                  How much of your resume survives parsing, averaged across 15 ATS. It ranges from
-                  <b style={{ color: scoreColor(worst.score) }}> {worst.score}</b> on {worst.name} to
-                  <b style={{ color: scoreColor(best.score) }}> {best.score}</b> on {best.name}.
-                </p>
-                <div className="row wrap" style={{ gap: 6, marginTop: 12 }}>
-                  <span className="chip sm">{audit.file_type?.toUpperCase()}</span>
-                  {audit.pages && <span className="chip sm">{audit.pages} page{audit.pages > 1 ? 's' : ''}</span>}
-                  <span className="chip sm">{audit.words} words</span>
-                  <span className={`chip sm ${audit.columns ? 'bad' : 'good'}`}>{audit.columns ? 'Multi-column' : 'Single column'}</span>
-                  {audit.tables > 0 && <span className="chip sm warn">{audit.tables} tables</span>}
-                </div>
-              </div>
-            </div>
-            <div className="divider" />
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Parse survival by ATS · click one to X-ray it</div>
-            <div className="stack" style={{ gap: 2 }}>
-              {scores.map(s => (
-                <button key={s.id} className={`ats-row ${s.id === selected.id ? 'on' : ''}`} onClick={() => setAtsId(s.id)}>
-                  <span className="small" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.name}{s.region === 'India' && <span className="faint tiny"> · IN</span>}
-                  </span>
-                  <Bar value={s.score} />
-                  <span className="mono small" style={{ color: scoreColor(s.score), textAlign: 'right' }}>{s.score}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <ParseChecks audit={audit} profile={profile} />
+          <Extracted audit={audit} profile={profile} />
 
           <div className="card">
             <div className="card-head">
@@ -353,9 +326,94 @@ export default function ScanView({ analysis, onAnalyzed, onReset, goJobs, notify
             ))}
           </div>
 
-          <XRay analysis={analysis} atsId={selected.id} atsName={selected.name} />
+          <XRay analysis={analysis} atsId="workday" atsName="an ATS" />
         </div>
       </div>
+    </div>
+  );
+}
+
+const has = (audit, key) => audit.issues.some(i => i.key === key);
+
+function parseChecks(audit, profile) {
+  const s = audit.sections || {};
+  const c = audit.contact || {};
+  return [
+    { ok: !audit.scanned, label: 'Text is real text, not an image',
+      why: audit.scanned ? 'An ATS sees a blank page.' : `${audit.words} words read directly from the file.` },
+    { ok: !has(audit, 'encoding'), label: 'Every character decodes',
+      why: has(audit, 'encoding') ? "Some text comes out as '(cid:NN)' codes." : has(audit, 'icon_glyphs') ? 'Only an icon fails to decode; text is fine.' : 'No garbled characters.' },
+    { ok: !audit.columns, label: 'Reads in the right order', why: audit.columns ? 'Two columns get interleaved line by line.' : 'Single column, top to bottom.' },
+    { ok: !audit.tables && !audit.text_boxes, label: 'No tables or text boxes',
+      why: audit.tables || audit.text_boxes ? 'Cells and boxes are often flattened or skipped.' : 'Nothing that parsers commonly skip.' },
+    { ok: !(audit.margin_contact || []).length, label: 'Contact details in the body',
+      why: (audit.margin_contact || []).length ? 'Header/footer text is dropped by several ATS.' : 'Not hidden in a header or footer.' },
+    { ok: Boolean(c.email && c.phone), label: 'Email and phone found', why: [c.email, c.phone].filter(Boolean).join(' · ') || 'Missing.' },
+    { ok: !has(audit, 'hidden_links'), label: 'Links written out',
+      why: has(audit, 'hidden_links') ? 'LinkedIn/GitHub are only clickable words; the URL is lost.' : 'URLs are visible text.' },
+    { ok: Boolean(s.experience || s.projects) && Boolean(s.education) && Boolean(s.skills) && !(audit.nonstandard_sections || []).length,
+      label: 'Standard section headings', why: `Found: ${Object.keys(s).join(', ') || 'none'}${(audit.nonstandard_sections || []).length ? '; creative headings may not be recognised' : ''}.` },
+    { ok: profile.experience_source !== 'none_found', label: 'Dates are readable',
+      why: profile.experience_source === 'none_found' ? 'No date ranges an ATS can parse.' : 'Date ranges parse into experience.' },
+    { ok: (audit.pages || 1) <= 2, label: 'Length', why: `${audit.pages || 1} page${(audit.pages || 1) > 1 ? 's' : ''}.` },
+  ];
+}
+
+function ParseChecks({ audit, profile }) {
+  const checks = parseChecks(audit, profile);
+  const failed = checks.filter(c => !c.ok).length;
+  return (
+    <div className="card glow">
+      <div className="card-head">
+        <ScanLine size={17} />
+        <div className="h3">Can an ATS read this file?</div>
+        <div className="spacer" />
+        <span className={`chip sm ${failed ? 'bad' : 'good'}`}>{failed ? `${failed} problem${failed > 1 ? 's' : ''}` : 'Yes'}</span>
+      </div>
+      <div className="checks">
+        {checks.map(c => (
+          <div key={c.label} className={`check ${c.ok ? 'ok' : 'bad'}`}>
+            {c.ok ? <Check size={15} /> : <X size={15} />}
+            <div><b>{c.label}</b><div className="tiny muted">{c.why}</div></div>
+          </div>
+        ))}
+      </div>
+      <p className="tiny faint" style={{ marginTop: 14 }}>
+        There is no single "ATS score". An ATS stores what it can read from your file, and recruiters then search it by keyword.
+        This checks the reading part; whether a search finds you depends on the job, so each job on <b>Jobs in India</b> gets its own keyword match.
+      </p>
+    </div>
+  );
+}
+
+function Extracted({ audit, profile }) {
+  const c = audit.contact || {};
+  const edu = profile.education || {};
+  const latest = (profile.experience || [])[0];
+  // A URL GlassBox recovered from a link target is invisible to an ATS.
+  const hidden = (audit.issues.find(i => i.key === 'hidden_links') || {}).detail || '';
+  const linkedin = c.linkedin && hidden.includes('LinkedIn') ? null : c.linkedin;
+  const rows = [
+    ['Name', profile.name],
+    ['Email', c.email], ['Phone', c.phone],
+    ['LinkedIn', linkedin || (c.linkedin ? 'Not visible: only a clickable word' : null)], ['Location', profile.location],
+    ['Latest role', latest ? `${latest.title} · ${latest.company} · ${latest.start || '?'} – ${latest.end || '?'}` : null],
+    ['Experience counted', experienceLabel(profile)],
+    ['Education', [edu.degree, edu.college, edu.graduation_year].filter(Boolean).join(' · ') || null],
+    ['Skills found', `${(profile.skills || []).length} keywords`],
+  ];
+  return (
+    <div className="card">
+      <div className="card-head"><Eye size={17} /><div className="h3">What an ATS would extract</div></div>
+      <div className="fields">
+        {rows.map(([k, v]) => (
+          <React.Fragment key={k}>
+            <span className="tiny faint">{k}</span>
+            <span className="small" style={{ color: v && !String(v).startsWith('Not visible') ? 'var(--ink)' : 'var(--red)' }}>{v || 'Not found'}</span>
+          </React.Fragment>
+        ))}
+      </div>
+      <p className="tiny faint" style={{ marginTop: 12 }}>If anything here is wrong or missing, an ATS will most likely get it wrong too. Fix it in the resume.</p>
     </div>
   );
 }

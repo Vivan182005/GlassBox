@@ -56,6 +56,7 @@ export const api = {
   resumeFileWithHeaders: (ext, body) => http.post(`/api/apply/resume.${ext}`, body, { responseType: 'blob' })
     .then(r => ({ blob: r.data, headers: r.headers })),
   resumeTex: (body) => http.post('/api/apply/resume.tex', body).then(r => r.data),
+  renderApplication: (body) => http.post('/api/apply/render', body).then(r => r.data),
 };
 
 export default http;

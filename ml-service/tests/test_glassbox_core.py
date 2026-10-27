@@ -187,6 +187,59 @@ class TestLatex(unittest.TestCase):
         self.assertEqual(notes, [])
 
 
+class TestPdfInPlaceEdit(unittest.TestCase):
+    """Edits go into the candidate's own PDF: same font and baselines, nothing
+    else moves, and the text stays in reading order for stream-order parsers."""
+
+    def _pdf(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        lines = ["Experience", "- Built dashboards in Tableau and automated reports using Python and PostgreSQL",
+                 "  for the plant operations team every week.", "- Second bullet stays exactly as it was.", "Education"]
+        y = 80
+        for i, text in enumerate(lines):
+            if text.startswith("- "):
+                page.insert_text((40, y), "-", fontname="helv", fontsize=10)
+                page.insert_text((52, y), text[2:], fontname="helv", fontsize=10)
+            elif text.startswith("  "):
+                page.insert_text((52, y), text.strip(), fontname="helv", fontsize=10)
+            else:
+                page.insert_text((40, y), text, fontname="helv", fontsize=11)
+            y += 14
+        return doc.tobytes()
+
+    def test_edit_in_place_and_in_order(self):
+        import pymupdf
+        from application.pdf_edit import apply_edits
+        src = self._pdf()
+        original = "Built dashboards in Tableau and automated reports using Python and PostgreSQL for the plant operations team every week."
+        pdf, report = apply_edits(src, [{"id": "a", "original": original, "kind": "bullet",
+                                         "text": original.replace("PostgreSQL", "PostgreSQL (SQL)")}])
+        self.assertEqual(report, [{"id": "a", "applied": True}])
+        page = pymupdf.open(stream=pdf, filetype="pdf")[0]
+        stored = page.get_text(sort=False)
+        self.assertIn("PostgreSQL (SQL)", stored.replace("\n", " "))
+        # Stored order still reads top to bottom.
+        self.assertLess(stored.index("Experience"), stored.index("Built"))
+        self.assertLess(stored.index("Built"), stored.index("Second bullet"))
+        self.assertLess(stored.index("Second bullet"), stored.index("Education"))
+        # Untouched lines keep their exact position.
+        before = {w[4]: w[:2] for w in pymupdf.open(stream=src, filetype="pdf")[0].get_text("words")}
+        after = {w[4]: w[:2] for w in page.get_text("words")}
+        self.assertEqual(before["Second"], after["Second"])
+        self.assertEqual(before["Education"], after["Education"])
+
+    def test_edit_that_needs_a_new_line_is_refused(self):
+        from application.pdf_edit import apply_edits
+        original = "Built dashboards in Tableau and automated reports using Python and PostgreSQL for the plant operations team every week."
+        pdf, report = apply_edits(self._pdf(), [{"id": "a", "original": original, "kind": "bullet",
+                                                 "text": original + " " + "Added a very long tail of extra words " * 4}])
+        self.assertIsNone(pdf)
+        self.assertFalse(report[0]["applied"])
+        self.assertIn("extra line", report[0]["reason"])
+
+
 class TestApplyFlow(unittest.TestCase):
     CHECK = {"score": 70, "verdict": "pass", "breakdown": {"keywords": 70},
              "coverage": {"must_matched": 7, "must_total": 8, "nice_matched": 3, "nice_total": 4},

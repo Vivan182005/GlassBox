@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import re
+import base64
 import concurrent.futures as cf
 from typing import Any, Dict, List, Optional
 
@@ -28,7 +29,7 @@ from matching.ats_check import run_check, tailor
 from application.rating import rate, APPLY_THRESHOLD
 from application.forms import application_form
 from application.answers import answer_form, summarize
-from application import latex, resume_builder
+from application import latex, pdf_edit, resume_builder
 
 app = FastAPI(title="GlassBox ML Service", description="Resume X-ray, India job network and ATS pass check", version="2.0.0")
 
@@ -264,6 +265,75 @@ def apply_prepare(req: PrepareRequest):
         "answers": answers,
         "answer_summary": summarize(answers),
     }
+
+
+class RenderRequest(BaseModel):
+    source_pdf: str  # base64 of the candidate's original PDF
+    resume: Dict[str, Any]
+    profile: Dict[str, Any] = {}
+    audit: Dict[str, Any]
+    job: Dict[str, Any]
+    cities: List[str] = []
+
+
+def _edits_from(resume: Dict[str, Any]) -> List[Dict[str, str]]:
+    edits = []
+    for sec in ("experience", "projects"):
+        for i, it in enumerate(resume.get(sec) or []):
+            for j, b in enumerate(it.get("bullets") or []):
+                if isinstance(b, dict) and b.get("original") and b.get("text") != b.get("original"):
+                    edits.append({"id": f"{sec}:{i}:{j}", "original": b["original"], "text": b["text"], "kind": "bullet"})
+    for i, g in enumerate(resume.get("skills") or []):
+        if g.get("original") and g.get("items") != g["original"]:
+            label = g.get("group") or "Skills"
+            edits.append({"id": f"skills:{i}", "original": f"{label}: {', '.join(g['original'])}",
+                          "text": f"{label}: {', '.join(g['items'])}", "kind": "line"})
+    return edits
+
+
+@app.post("/api/apply/render")
+def apply_render(req: RenderRequest):
+    """Writes the kept edits into the candidate's own PDF (same fonts, colours,
+    positions) and measures the result: the edited file is read back with the
+    same reader and checked against the job, so the scores describe the exact
+    file that will be sent."""
+    try:
+        source = base64.b64decode(req.source_pdf)
+    except Exception:
+        raise HTTPException(400, "The original PDF couldn't be read. Scan it again.")
+    edits = _edits_from(req.resume)
+    edited, report = pdf_edit.apply_edits(source, edits) if edits else (None, [])
+    final = edited or source
+    read = read_resume(final, "resume.pdf")
+    audit_result = audit(read)
+    jd = _jd_for(req.job)
+    if len(jd) < 80:
+        raise HTTPException(400, "This posting has no readable job description.")
+    job = req.job
+    check = run_check(read["text"], req.profile, audit_result, jd, job.get("ats_id") or "generic", job.get("title", ""), job.get("company", ""))
+    return {
+        "pdf": base64.b64encode(final).decode(),
+        "edited": edited is not None,
+        "report": report,
+        "check": {k: check[k] for k in ("score", "verdict", "breakdown", "coverage", "keywords", "knockouts", "ats", "fixes")},
+        "rating": rate(job, check, req.cities, req.profile),
+        "issues": [i["title"] for i in audit_result["issues"]],
+        "text_order_ok": _reads_in_order(final, read["text"]),
+    }
+
+
+def _reads_in_order(pdf: bytes, text: str) -> bool:
+    """True when a parser that reads the file in stored order (not by page
+    position) still sees the same text as the position-based reader."""
+    import pymupdf
+    try:
+        doc = pymupdf.open(stream=pdf, filetype="pdf")
+        raw = "".join(p.get_text(sort=False) for p in doc)
+        flat = lambda t: re.sub(r"[^a-z0-9]+", "", t.lower())
+        import difflib
+        return difflib.SequenceMatcher(None, flat(raw)[:6000], flat(text)[:6000], autojunk=False).ratio() > 0.97
+    except Exception:
+        return True
 
 
 class ResumeFileRequest(BaseModel):
