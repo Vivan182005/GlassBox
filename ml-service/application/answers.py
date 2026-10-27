@@ -100,7 +100,13 @@ def _from_resume(field: Dict[str, Any], slot: Optional[str], profile: Dict[str, 
         return ("https://" + v) if slot in ("linkedin", "github") and not v.startswith("http") else v
     if slot == "website":
         links = [u for u in contact.get("links") or [] if not re.search(r"linkedin\.com|github\.com", u, re.I)]
-        return links[0] if links else None
+        if links:
+            return links[0]
+        # A required "Website" box takes the GitHub profile when there's no portfolio.
+        if field.get("required") and contact.get("github"):
+            g = contact["github"]
+            return g if g.startswith("http") else "https://" + g
+        return None
     if slot == "location" and profile.get("location"):
         return _pick(opts, profile["location"]) if opts else f"{profile['location']}, India"
     if slot == "current_company":

@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from core.llm import llm_json
 from matching.ats_check import run_check
-from matching.skills_lexicon import implied_by, term_in_text
+from matching.skills_lexicon import _GENERIC as _GENERIC_WORDS, implied_by, shown_by, term_in_text
 from parsing.resume_reader import audit, read_text
 from application import latex
 
@@ -41,14 +41,16 @@ _EDIT_PROMPT = (
     "You tailor a candidate's resume for ONE job with the smallest set of edits that gets it through ATS keyword "
     "screening. You are given the resume as JSON. Return only the edits. Rules:\n"
     "1. Use ONLY facts already in the resume. Never add employers, titles, dates, numbers, tools or claims.\n"
-    "2. bullet_edits: rewrite a bullet only when a small change lets it use the job's exact wording for something it "
-    "already shows (e.g. 'dashboards in Tableau' -> 'data visualization dashboards in Tableau'). Keep every number and "
-    "the bullet's length. Only INSERT a few words into the original sentence; never delete or replace its words. Place "
-    "each keyword under KEYWORDS TO PLACE in a bullet that mentions the tool it names in brackets, and nowhere else, "
-    "in brackets after that tool: 'PostgreSQL' -> 'PostgreSQL (SQL)', 'FastAPI' -> 'FastAPI (REST APIs)'. "
-    "Never put a skill into a bullet that doesn't already show it. Leave all other bullets out.\n"
-    "3. skills: the same groups with the same names; reorder items so the job's must-haves come first; add a keyword "
-    "only when the resume shows it (e.g. 'SQL' when it lists PostgreSQL).\n"
+    "2. bullet_edits: rewrite a bullet only when inserting a few of the job's exact words describes what that bullet "
+    "already shows (e.g. a bullet about building Tableau dashboards may say 'dashboard development'). Insert them as "
+    "ordinary words of the sentence: never in brackets, never repeating a term the bullet already has, never a list of "
+    "tags, never a tacked-on clause like 'showcasing X' or 'leveraging X', in normal sentence case "
+    "('dashboard development', not 'Dashboard Development'). Keep every number and the bullet's length. Only INSERT "
+    "words into the original sentence; never delete or "
+    "replace its words. Use only the keywords listed under KEYWORDS TO PLACE, each in one of the bullets named for it. "
+    "Leave all other bullets out.\n"
+    "3. skills: the same groups with the same names and the same items in the same order; append a keyword at the end "
+    "of a group only when the resume shows it (e.g. 'SQL' when it lists PostgreSQL).\n"
     "4. headline / summary: an edited version only if the resume has one, same length and voice; else null.\n"
     "Return ONLY JSON:\n"
     '{"bullet_edits": [{"original": "the bullet, copied exactly", "text": "edited bullet"}], '
@@ -138,9 +140,12 @@ def _guard(data: Dict[str, Any], source: str) -> List[str]:
     # The resume is the authority in both directions: a skill it shows is kept
     # even if the model listed it under do_not_claim, and do_not_claim is
     # cleaned of anything the resume actually has.
+    lines = [l for l in source.splitlines() if len(l) > 30]
+
     def supported(item: str) -> bool:
         item = item.strip()
-        return bool(item) and (term_in_text(item, source) > 0 or bool(implied_by(item, source)))
+        return bool(item) and (term_in_text(item, source) > 0 or bool(implied_by(item, source))
+                               or any(shown_by(item, l) for l in lines))
 
     dnc = [re.sub(r"\s*\(.*?\)\s*", " ", t).strip() for t in data.get("do_not_claim") or []]
     data["do_not_claim"] = list(dict.fromkeys(t for t in dnc if t and not supported(t)))
@@ -309,6 +314,9 @@ def _drops_facts(original: str, new: str) -> bool:
     return any(w not in kept and w not in _GLUE for w in words(original))
 
 
+_FILLER = re.compile(r"\b(showcas|demonstrat|highlight|leverag|utiliz|exhibit|proficien|expertise|skilled)\w*", re.I)
+
+
 def _apply_edits(data: Dict[str, Any], edits: Dict[str, Any], source: str, notes: List[str], keywords: List[str]) -> None:
     src_nums = _numbers(source)
     placed: set = set()
@@ -334,11 +342,30 @@ def _apply_edits(data: Dict[str, Any], edits: Dict[str, Any], source: str, notes
         gained = {k for k in keywords if term_in_text(k, new) and not term_in_text(k, best["original"])}
         # Truthful only if this bullet itself shows the skill: "SQL" into a
         # bullet about PostgreSQL, never "Java" into one that never used it.
-        if any(not implied_by(k, best["original"]) for k in gained):
+        if any(not shown_by(k, best["original"]) for k in gained):
+            continue
+        added = " ".join(w for w in re.findall(r"[A-Za-z]+", new) if w.lower() not in set(re.findall(r"[a-z]+", best["original"].lower())))
+        orig_s = best["original"].rstrip()
+        if orig_s[-1:] in ".;" and not new.rstrip().endswith(orig_s[-1]):
+            continue
+        tail = new.rstrip(" .;")[len(orig_s.rstrip(" .;")):] if new.startswith(orig_s.rstrip(" .;")) else ""
+        if tail and not re.match(r"\s+(in|with|using|through|for|via|across|by|and|including)\b", tail):
+            continue  # "..., dashboard development" is a tag stuck on the end, not a sentence
+        if _FILLER.search(added):
+            notes.append("Skipped an edit that bolted keywords on with filler words.")
+            continue
+        # Keywords go in as words of the sentence, not bracketed tags.
+        if new.count("(") > best["original"].count("("):
+            notes.append(f"Skipped an edit that tagged keywords in brackets instead of writing them into the sentence.")
             continue
         if not gained or gained <= placed or len(new) > len(best["original"]) * 1.35 + 20 or _drops_facts(best["original"], new):
             continue
         placed |= gained
+        # "monitor performance through Dashboard Development" reads as pasted in;
+        # a common-noun phrase goes in lower case like the words around it.
+        for k in gained:
+            if " " in k and k.istitle() and set(k.lower().split()) & _GENERIC_WORDS:
+                new = re.sub(r"(?<=[a-z,] )" + re.escape(k), k.lower(), new)
         best["text"] = new
         best["keywords"] = sorted(gained)
     # Skills: only the resume's own groups, matched by name.
@@ -348,7 +375,10 @@ def _apply_edits(data: Dict[str, Any], edits: Dict[str, Any], source: str, notes
             continue
         own = by_name.get((g.get("group") or "").strip().lower())
         if own and isinstance(g.get("items"), list) and g["items"]:
-            own["items"] = [str(i) for i in g["items"] if i]
+            # Same items, same order (a reshuffle changes nothing an ATS reads);
+            # only new ones are appended, so the line keeps its layout.
+            have = {str(i).strip().lower() for i in own["items"]}
+            own["items"] = list(own["items"]) + [str(i) for i in g["items"] if i and str(i).strip().lower() not in have]
     for key in ("headline", "summary"):
         if data.get(key) and isinstance(edits.get(key), str) and edits[key].strip() and not (_numbers(edits[key]) - src_nums):
             data[key] = edits[key].strip()
@@ -365,6 +395,12 @@ def build(resume_text: str, profile: Dict[str, Any], audit_result: Dict[str, Any
     nice = [r["term"] for r in before["keywords"]["nice_to_have"]]
     rows = before["keywords"]["must_have"] + before["keywords"]["nice_to_have"]
     to_place = [f"{r['term']} (only in a bullet that mentions {' or '.join(r['via'])})" for r in rows if r["status"] == "implied"]
+    all_bullets = [b["original"] for sec in ("experience", "projects") for it in data[sec] for b in it["bullets"]]
+    for r in rows:
+        if r["status"] == "missing":
+            hosts = [b[:70] for b in all_bullets if shown_by(r["term"], b)]
+            if hosts:
+                to_place.append(f"{r['term']} (only in the bullet starting: {' | '.join(hosts[:2])})")
     implied = [f"{r['term']} (shown by {', '.join(r['via'])})" for r in rows if r["status"] == "implied"]
     view = {k: data[k] for k in ("headline", "summary", "skills")}
     view["experience"] = [{**{k: v for k, v in e.items() if k != "bullets"}, "bullets": [b["text"] for b in e["bullets"]]} for e in data["experience"]]

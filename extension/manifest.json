@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "GlassBox Autofill",
+  "version": "1.0.0",
+  "description": "Fills job applications on Greenhouse, Lever and Ashby with the answers and tailored resume you approved in GlassBox.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://glass-box-psi.vercel.app/*",
+        "https://glass-box1.vercel.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://job-boards.greenhouse.io/*",
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.eu.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.eu.lever.co/*",
+        "https://jobs.ashbyhq.com/*"
+      ],
+      "js": ["fill.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

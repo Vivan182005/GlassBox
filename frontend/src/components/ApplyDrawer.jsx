@@ -6,6 +6,7 @@ import {
 import { api, errorMessage } from '../api';
 import { AtsBadge, CompanyLogo, Spinner, Bar } from './ui/primitives';
 import { ratingColor, scoreColor, APPLY_THRESHOLD, downloadBlob } from '../lib/format';
+import { useExtension, queueApplication } from '../lib/extension';
 
 const STATUS = {
   from_resume: { label: 'From your resume', cls: 'good' },
@@ -204,6 +205,7 @@ function ResumeStep({ tailored, decisions, setDecision, finalResume, job, analys
     });
   };
   const all = [...changes, ...skillChanges];
+  const missing = (rendered?.check?.keywords?.must_have || []).filter(k => k.status === 'missing').map(k => k.term);
   const kept = all.filter(c => decisions[c.id] !== false && status[c.id]?.applied !== false).length;
   const toggle = (id, on, skipped) => !skipped && setDecision(id, !on);
 
@@ -255,9 +257,17 @@ function ResumeStep({ tailored, decisions, setDecision, finalResume, job, analys
         </div>
       )}
 
-      {all.length === 0 ? (
-        <div className="card small muted">No edits needed: your resume already uses this job's wording wherever it truthfully can.</div>
-      ) : (
+      {(all.length === 0 || (rendered && !rendered.loading && rendered.edited === false)) && (
+        <div className="card" style={{ borderColor: 'var(--ochre)' }}>
+          <div className="row" style={{ gap: 8 }}><AlertTriangle size={16} color="var(--amber)" /><b>Your PDF is unchanged for this job</b></div>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            {missing.length
+              ? <>The gap isn't wording. The job needs {missing.slice(0, 5).join(', ')}, and nothing on your resume shows {missing.length > 1 ? 'them' : 'it'}, so GlassBox won't write {missing.length > 1 ? 'them' : 'it'} in. Your rating stays {Number(before.rating).toFixed(1)}: to raise it, you'd need real work with these, not a reworded resume.</>
+              : <>Your resume already uses this job's wording wherever it truthfully can, so the file you send is your original.</>}
+          </p>
+        </div>
+      )}
+      {all.length > 0 && (
         <div className="card">
           <div className="card-head"><Sparkles size={17} /><div className="h3">{kept} of {all.length} edits in your PDF</div></div>
           <p className="tiny faint" style={{ marginBottom: 10 }}>
@@ -424,6 +434,19 @@ function QuestionsStep({ rows, values, setValue, form }) {
   );
 }
 
+function AutofillHint() {
+  return (
+    <div className="card tight" style={{ marginTop: 12 }}>
+      <div className="row" style={{ gap: 8 }}><Sparkles size={15} /><b className="small">Let GlassBox fill the form for you</b></div>
+      <p className="tiny faint" style={{ marginTop: 6 }}>
+        Add the free GlassBox Autofill extension to Chrome, Edge or Brave and Approve fills
+        this form in your browser instead of copying answers: <a href="/glassbox-autofill.zip" download>download it</a>, unzip, open
+        chrome://extensions, turn on Developer mode, click Load unpacked and pick the folder. Then reload this page.
+      </p>
+    </div>
+  );
+}
+
 export default function ApplyDrawer({ job, analysis, sourcePdf, cities, savedAnswers, setSavedAnswers, onApplied, onClose, notify, goScan }) {
   const [rendered, setRendered] = useState(null);
   const [data, setData] = useState(null);
@@ -506,33 +529,55 @@ export default function ApplyDrawer({ job, analysis, sourcePdf, cities, savedAns
     .map(r => `${r.label}\n${Array.isArray(values[r.id]) ? values[r.id].join(', ') : values[r.id] || ''}`)
     .join('\n\n') + (cover ? `\n\nCover letter\n${cover}` : '');
 
+  const ext = useExtension();
+  const autofill = ext.ready && ['greenhouse', 'lever', 'ashby'].includes(job?.ats_id);
+  const [filled, setFilled] = useState(false);
+
+  const resumeB64 = async () => {
+    if (rendered?.pdf) return rendered.pdf;  // the exact file reviewed in the Resume step
+    if (!finalResume) return null;
+    const { blob } = await api.resumeFileWithHeaders('pdf', {
+      resume: finalResume, header: data.tailored.header, style: data.tailored.style, plan: data.tailored.plan,
+      contact: analysis?.audit?.contact || {}, filename: fileName,
+    });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  };
+
   const approve = async () => {
-    // Open the form first: browsers only allow pop-ups straight from the click.
+    // Open the tab inside the click (browsers block pop-ups opened later), then
+    // point it at the form once the extension has the application.
     const url = applyUrl(job);
-    if (url) window.open(url, '_blank', 'noopener');
-    navigator.clipboard?.writeText(answersText()).catch(() => {});
+    const tab = url ? window.open('', '_blank') : null;
+    if (tab) tab.opener = null;
     setBusy(true);
     try {
-      if (rendered?.pdf) {
-        // The exact file reviewed in the Resume step.
-        downloadBlob(new Blob([Uint8Array.from(atob(rendered.pdf), c => c.charCodeAt(0))], { type: 'application/pdf' }), `${fileName}.pdf`);
-      } else if (finalResume) {
-        const { blob } = await api.resumeFileWithHeaders('pdf', {
-          resume: finalResume, header: data.tailored.header, style: data.tailored.style, plan: data.tailored.plan,
-          contact: analysis?.audit?.contact || {}, filename: fileName,
+      const b64 = await resumeB64();
+      if (autofill && b64) {
+        await queueApplication({
+          key: job.id, native_id: job.id.split(':').pop(), job_id: job.id, title: job.title, company: job.company, url,
+          fields: (data.answers || []).map(r => ({ id: r.id, label: r.label, type: r.type, required: r.required, value: r.type === 'file' ? r.value : values[r.id] })),
+          resume: { name: `${fileName}.pdf`, b64 }, cover_letter: cover,
+          employment: analysis?.profile?.experience || [], country: 'India',
         });
-        downloadBlob(blob, `${fileName}.pdf`);
+        setFilled(true);
+      } else {
+        navigator.clipboard?.writeText(answersText()).catch(() => {});
+        if (b64) downloadBlob(new Blob([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], { type: 'application/pdf' }), `${fileName}.pdf`);
       }
     } catch (err) {
       notify(errorMessage(err), 'error');
     } finally {
       setBusy(false);
+      if (tab) tab.location.href = url;
     }
     onApplied({
       id: job.id, company: job.company, title: job.title, url: job.url, ats_id: job.ats_id, ats_name: job.ats_name,
       rating: rendered?.rating?.score ?? data.rating.score, ats_before: data.check.score,
       ats_after: rendered?.check?.score ?? data.tailored?.after.score ?? null,
-      status: 'applied', date: new Date().toISOString().slice(0, 10),
+      status: autofill ? 'filling' : 'applied', date: new Date().toISOString().slice(0, 10),
     });
     setDone(true);
   };
@@ -641,9 +686,11 @@ export default function ApplyDrawer({ job, analysis, sourcePdf, cities, savedAns
                     {busy ? <Spinner /> : <Check size={16} />} Approve &amp; apply
                   </button>
                   <p className="tiny faint" style={{ marginTop: 10 }}>
-                    One click opens {job?.company}'s application, downloads your resume and copies every answer, ready to paste.
-                    You press Submit on their page: company forms need you signed in and block automated submissions.
+                    {autofill
+                      ? <>One click opens {job?.company}'s form and GlassBox Autofill fills it in: every answer above, your resume PDF attached. You look it over and press Submit (the form's CAPTCHA needs a person).</>
+                      : <>One click opens {job?.company}'s application, downloads your resume and copies every answer, ready to paste. You press Submit on their page.</>}
                   </p>
+                  {!ext.ready && ['greenhouse', 'lever', 'ashby'].includes(job?.ats_id) && <AutofillHint />}
                 </div>
               )}
               <div className="row step-nav">
@@ -658,10 +705,11 @@ export default function ApplyDrawer({ job, analysis, sourcePdf, cities, savedAns
           {done && (
             <div className="card glow step-pane" style={{ textAlign: 'center', padding: '36px 22px' }}>
               <BadgeCheck size={34} color="var(--lime)" />
-              <div className="h2" style={{ marginTop: 10 }}>Ready to submit</div>
+              <div className="h2" style={{ marginTop: 10 }}>{filled ? 'Filling the form for you' : 'Ready to submit'}</div>
               <p className="small muted" style={{ marginTop: 8, maxWidth: 460, marginInline: 'auto' }}>
-                {job?.company}'s form is open in a new tab. Upload <b>{fileName}.pdf</b> from your downloads, paste the answers
-                (they're on your clipboard), and press Submit. It's saved under Applications.
+                {filled
+                  ? <>{job?.company}'s form is open in a new tab and GlassBox Autofill is filling it. Check the panel in the corner for anything it couldn't answer, then press Submit. Once {job?.company} confirms, it shows as Submitted under Applications.</>
+                  : <>{job?.company}'s form is open in a new tab. Upload <b>{fileName}.pdf</b> from your downloads, paste the answers (they're on your clipboard), and press Submit. It's saved under Applications.</>}
               </p>
               <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 16 }}>
                 <button className="btn" onClick={() => navigator.clipboard?.writeText(answersText()).then(() => notify('Answers copied'))}><Copy size={14} /> Copy answers again</button>

@@ -3,7 +3,7 @@ import { ExternalLink, Trash2, Briefcase, Star } from 'lucide-react';
 import { AtsBadge, CompanyLogo } from '../components/ui/primitives';
 import { ratingColor, scoreColor } from '../lib/format';
 
-const STAGES = ['applied', 'interview', 'offer', 'rejected', 'no reply'];
+const STAGES = ['filling', 'applied', 'interview', 'offer', 'rejected', 'no reply'];
 
 export default function ApplicationsView({ applications, setApplications, goJobs }) {
   const update = (id, patch) => setApplications(list => list.map(a => (a.id === id ? { ...a, ...patch } : a)));

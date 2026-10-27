@@ -407,3 +407,19 @@ def implied_by(term: str, text: str) -> List[str]:
     """Skills in the text that demonstrate `term` without naming it."""
     canonical = canonicalize(term)
     return [s for s in IMPLIED.get(canonical, []) if term_in_text(s, text) > 0]
+
+
+# Words that name a kind of work rather than what it was done on; "Dashboard
+# Development" is shown by any bullet about building dashboards.
+_GENERIC = {"development", "developing", "management", "managing", "analysis", "analytics", "design", "designing",
+            "building", "engineering", "implementation", "operations", "solutions", "tools", "techniques", "practices"}
+
+
+def shown_by(term: str, text: str) -> bool:
+    """True when the text demonstrates `term`: it names it, a tool implies it,
+    or every specific word of it appears (by stem) in the text."""
+    if term_in_text(term, text) or implied_by(term, text):
+        return True
+    words = [w for w in re.findall(r"[a-z0-9+#]+", term.lower()) if len(w) > 2 and w not in _STOP and w not in _GENERIC]
+    stems = {s[:5] for s in re.findall(r"[a-z0-9+#]+", text.lower())}
+    return bool(words) and all(w[:5] in stems for w in words)

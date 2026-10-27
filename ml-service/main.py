@@ -30,6 +30,8 @@ from application.rating import rate, APPLY_THRESHOLD
 from application.forms import application_form
 from application.answers import answer_form, summarize
 from application import latex, pdf_edit, resume_builder
+from jobs.role_titles import ROLE_TITLES
+from matching.skills_lexicon import _SKILLS
 
 app = FastAPI(title="GlassBox ML Service", description="Resume X-ray, India job network and ATS pass check", version="2.0.0")
 
@@ -70,6 +72,8 @@ def meta():
         "companies": [{"name": c["name"], "domain": c.get("domain"), "ats_id": c["ats"], "ats_name": get_profile(c["ats"])["name"]} for c in registry],
         "ats_profiles": [public_profile(p) for p in ATS_PROFILES],
         "cities": list(INDIA_CITIES.keys()) + ["Remote"],
+        "roles": ROLE_TITLES,
+        "skills": sorted({c for c, _, _ in _SKILLS}, key=str.lower),
     }
 
 

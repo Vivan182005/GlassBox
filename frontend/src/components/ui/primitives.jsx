@@ -105,21 +105,56 @@ export function Toast({ message, kind, onClose }) {
   return <div className={`toast ${kind || ''}`} role="status">{message}</div>;
 }
 
-export function AddInput({ placeholder, onAdd }) {
+export function AddInput({ placeholder, onAdd, options = [], exclude = [] }) {
   const [v, setV] = useState('');
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const q = v.trim().toLowerCase();
+  const taken = new Set(exclude.map(x => x.toLowerCase()));
+  // Prefix matches first, then matches anywhere in the name.
+  const matches = options
+    .filter(o => !taken.has(o.toLowerCase()) && (!q || o.toLowerCase().includes(q)))
+    .sort((a, b) => (b.toLowerCase().startsWith(q) - a.toLowerCase().startsWith(q)))
+    .slice(0, 8);
+  const add = (val) => {
+    if (!val.trim()) return;
+    onAdd(val.trim());
+    setV('');
+    setHi(0);
+  };
   return (
-    <input
-      className="input"
-      style={{ height: 30, width: 170, fontSize: 14 }}
-      placeholder={placeholder}
-      value={v}
-      onChange={e => setV(e.target.value)}
-      onKeyDown={e => {
-        if (e.key === 'Enter' && v.trim()) {
-          onAdd(v.trim());
-          setV('');
-        }
-      }}
-    />
+    <div className="combo">
+      <input
+        className="input"
+        style={{ height: 30, width: 190, fontSize: 14 }}
+        placeholder={placeholder}
+        value={v}
+        role="combobox"
+        aria-expanded={open && matches.length > 0}
+        aria-autocomplete="list"
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        onChange={e => { setV(e.target.value); setHi(0); setOpen(true); }}
+        onKeyDown={e => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, matches.length - 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
+          else if (e.key === 'Escape') setOpen(false);
+          else if (e.key === 'Enter') {
+            e.preventDefault();
+            add(open && q && matches[hi] && matches[hi].toLowerCase().startsWith(q) ? matches[hi] : v);
+          }
+        }}
+      />
+      {open && matches.length > 0 && (
+        <ul className="combo-list" role="listbox">
+          {matches.map((o, i) => (
+            <li key={o} role="option" aria-selected={i === hi} className={i === hi ? 'on' : ''}
+              onMouseDown={e => { e.preventDefault(); add(o); }} onMouseEnter={() => setHi(i)}>
+              {o}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

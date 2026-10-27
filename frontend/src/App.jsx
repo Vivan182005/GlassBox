@@ -8,6 +8,7 @@ import JobsView, { cityFromLocation } from './views/JobsView';
 import CompanyView from './views/CompanyView';
 import ApplicationsView from './views/ApplicationsView';
 import Footer from './components/Footer';
+import { useExtension } from './lib/extension';
 import { api } from './api';
 import { storage } from './lib/format';
 
@@ -81,6 +82,16 @@ export default function App() {
   useEffect(() => { storage.set('gb.applications', applications); }, [applications]);
   useEffect(() => { storage.set('gb.answers', savedAnswers); }, [savedAnswers]);
   useEffect(() => { storage.set('gb.sourcePdf', sourcePdf); }, [sourcePdf]);
+
+  // The Autofill extension reports forms the company confirmed as submitted.
+  const ext = useExtension();
+  useEffect(() => {
+    if (!ext.submitted.length) return;
+    const sent = new Set(ext.submitted.map(x => x.id));
+    setApplications(list => list.some(a => a.status === 'filling' && sent.has(a.id))
+      ? list.map(a => (a.status === 'filling' && sent.has(a.id) ? { ...a, status: 'applied' } : a))
+      : list);
+  }, [ext.submitted]);
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));

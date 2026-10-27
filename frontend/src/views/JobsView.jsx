@@ -54,7 +54,7 @@ function levelOf(profile) {
   return (profile?.full_time_years ?? profile?.years_experience ?? 0) >= 1 ? 'experienced' : 'fresher';
 }
 
-function ConfirmProfile({ analysis, roles, setRoles, prefs, setPrefs, skills, onSearch, loading }) {
+function ConfirmProfile({ analysis, roles, setRoles, prefs, setPrefs, skills, onSearch, loading, meta }) {
   const p = analysis.profile;
   return (
     <div className="card glow" style={{ marginBottom: 18 }}>
@@ -66,7 +66,7 @@ function ConfirmProfile({ analysis, roles, setRoles, prefs, setPrefs, skills, on
         <div className="filter-row">
           <span className="label eyebrow">Roles</span>
           {roles.map(r => <Chip key={r} onRemove={() => setRoles(roles.filter(x => x !== r))}>{r}</Chip>)}
-          <AddInput placeholder="+ Add role" onAdd={r => !roles.includes(r) && setRoles([...roles, r])} />
+          <AddInput placeholder="+ Add role" options={meta?.roles} exclude={roles} onAdd={r => !roles.includes(r) && setRoles([...roles, r])} />
         </div>
         <div className="filter-row">
           <span className="label eyebrow">Level</span>
@@ -80,7 +80,7 @@ function ConfirmProfile({ analysis, roles, setRoles, prefs, setPrefs, skills, on
           <span className="label eyebrow">Skills</span>
           {skills.slice(0, 14).map(sk => <Chip key={sk} onRemove={() => setPrefs(x => ({ ...x, removed: [...x.removed, sk] }))}>{sk}</Chip>)}
           {skills.length > 14 && <span className="tiny faint">+{skills.length - 14} more</span>}
-          <AddInput placeholder="+ Add skill" onAdd={sk => setPrefs(x => ({ ...x, added: [...x.added, sk] }))} />
+          <AddInput placeholder="+ Add skill" options={meta?.skills} exclude={skills} onAdd={sk => setPrefs(x => ({ ...x, added: [...x.added, sk] }))} />
         </div>
       </div>
       <div className="row wrap" style={{ marginTop: 18, gap: 12 }}>
@@ -250,7 +250,7 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
 
       {analysis && editing && (
         <ConfirmProfile analysis={analysis} roles={roles} setRoles={setRoles} prefs={prefs} setPrefs={setPrefs}
-          skills={skills} onSearch={search} loading={loading} />
+          skills={skills} onSearch={search} loading={loading} meta={meta} />
       )}
       {analysis && !editing && (
         <div className="row wrap small muted" style={{ gap: 10, marginBottom: 12 }}>
@@ -265,14 +265,14 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
           <div className="filter-row">
             <span className="label eyebrow">Roles</span>
             {roles.map(r => <Chip key={r} onRemove={() => setRoles(roles.filter(x => x !== r))}>{r}</Chip>)}
-            <AddInput placeholder="+ Add role" onAdd={r => !roles.includes(r) && setRoles([...roles, r])} />
+            <AddInput placeholder="+ Add role" options={meta?.roles} exclude={roles} onAdd={r => !roles.includes(r) && setRoles([...roles, r])} />
           </div>
         )}
         {!analysis && (
           <div className="filter-row">
             <span className="label eyebrow">Skills</span>
             {manualSkills.map(s => <Chip key={s} onRemove={() => setManualSkills(manualSkills.filter(x => x !== s))}>{s}</Chip>)}
-            <AddInput placeholder="+ Add skill" onAdd={s => !manualSkills.includes(s) && setManualSkills([...manualSkills, s])} />
+            <AddInput placeholder="+ Add skill" options={meta?.skills} exclude={manualSkills} onAdd={s => !manualSkills.includes(s) && setManualSkills([...manualSkills, s])} />
           </div>
         )}
         <div className="filter-row">
