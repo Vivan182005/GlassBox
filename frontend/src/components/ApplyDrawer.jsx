@@ -327,7 +327,7 @@ function ResumeStep({ tailored, decisions, setDecision, finalResume, job, analys
         <summary className="row"><FileCode2 size={16} /><span className="h3" style={{ marginLeft: 8 }}>Other formats</span><div className="spacer" /><span className="tiny faint">LaTeX, Overleaf, Word</span></summary>
         <p className="small muted" style={{ margin: '12px 0' }}>
           {userTex
-            ? 'Using the .tex you uploaded: your exact template, with only the kept edits swapped in.'
+            ? 'Using the .tex you uploaded: your exact template, with only the kept edits swapped in. Compile it in Overleaf; for safety GlassBox never compiles uploaded LaTeX.'
             : `A LaTeX version typeset like your original (${FONT_NAMES[tailored.style?.family] || 'same font'}, ${tailored.style?.paper === 'a4' ? 'A4' : 'Letter'}). Handy if you edit in Overleaf; for applying, the PDF above is the exact one.`}
         </p>
         <div className="row wrap" style={{ gap: 8 }}>

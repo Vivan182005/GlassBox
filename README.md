@@ -14,9 +14,8 @@
 
 ```
 frontend/   React + Vite. Scan → Jobs → Rate → Apply flow (Vercel); calls the ML service directly
-gateway/    Node/Express streaming proxy (optional; the frontend no longer needs it)
 ml-service/ FastAPI (Render)
-  core/       LLM layer (Groq → Gemini fallback), optional Supabase
+  core/       LLM layer (Groq → Gemini fallback), rate limits, safe outbound fetches
   parsing/    resume_reader (layout audit, column-aware text, ATS views), profile_extractor
   ats/        ATS profiles + company → ATS detector with an evidence trail
   jobs/       live board connectors, India discovery + ranking, network search
@@ -33,14 +32,11 @@ cd ml-service && python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --port 8000 --reload
 
-# Gateway
-cd gateway && npm install && ML_SERVICE_URL=http://127.0.0.1:8000 npm start   # port 5001
-
-# Frontend (proxies /api to the gateway on :5001)
+# Frontend (proxies /api to the ML service on :8000)
 cd frontend && npm install && npm run dev                                     # http://localhost:3000
 ```
 
-Tests: `cd ml-service && python -m unittest tests.test_glassbox_core`
+Tests: `cd ml-service && python -m unittest discover -s tests`
 
 ## Environment (ml-service/.env)
 
@@ -49,14 +45,13 @@ Tests: `cd ml-service && python -m unittest tests.test_glassbox_core`
 | `GROQ_API_KEY` | recommended | Profile extraction, JD keyword extraction, tailoring (default model `openai/gpt-oss-120b`, override with `GROQ_MODEL`) |
 | `GEMINI_API_KEY` | optional | Fallback LLM (default `gemini-2.5-flash`, override with `GEMINI_MODEL`) |
 | `RAPIDAPI_KEY` | optional | Adds JSearch results (LinkedIn, Naukri, Indeed aggregation) to job search |
-| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | optional | Not required; the service runs entirely without it |
-| `ALLOWED_ORIGINS` | optional | CORS allow-list |
+| `ALLOWED_ORIGINS` | optional | Extra browser origins allowed to call the API (GlassBox's Vercel sites and localhost:3000 always are) |
 
 Without any LLM key everything still works on rule-based fallbacks, with less precise role and keyword extraction.
 
 ## Tailored resumes in the candidate's own style
 
-The apply flow edits the candidate's resume in place (it only inserts the job's words where a line already shows that work) and typesets it to match the original: font family, size, paper, margins, colours, headings, bullet glyph, section order and heading names are measured from the uploaded PDF. Candidates who use Overleaf can upload their `.tex`, and only the accepted edits are swapped into their own source.
+The apply flow edits the candidate's resume in place (it only inserts the job's words where a line already shows that work) and typesets it to match the original: font family, size, paper, margins, colours, headings, bullet glyph, section order and heading names are measured from the uploaded PDF. Candidates who use Overleaf can upload their `.tex`, and only the accepted edits are swapped into their own source. An uploaded `.tex` is only ever returned as source (for Overleaf), never compiled on the server, because LaTeX can read files.
 
 - **Open in Overleaf** works with no setup: the `.tex` is sent to Overleaf, which compiles it.
 - **Server-side PDF**: install [Tectonic](https://tectonic-typesetting.github.io) with `bash ml-service/bin/install_tectonic.sh` (Render's build command runs it). Without it, the PDF button returns a plain ATS-safe PDF and says so.

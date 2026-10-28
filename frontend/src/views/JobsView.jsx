@@ -193,6 +193,7 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
         cities: filters.cities,
         max_age_days: filters.maxAge || null,
         student: prefs.level === 'student',
+        degree: analysis?.profile?.education?.degree || null,
       });
       setEditing(false);
       setResults({ ...res, key: JSON.stringify([roles, filters]) });

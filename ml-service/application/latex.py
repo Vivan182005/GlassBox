@@ -40,8 +40,20 @@ def esc(text: Any) -> str:
 
 
 def _url(u: str) -> str:
-    u = (u or "").strip()
-    return u if re.match(r"^(https?://|mailto:)", u) else f"https://{u}"
+    """A link target that can't break out of \\href: URL characters only, with
+    the two TeX-special ones hyperref accepts escaped."""
+    u = re.sub(r"[^A-Za-z0-9:/?=&._~+@!,;*()%#-]", "", (u or "").strip())
+    u = u if re.match(r"^(https?://|mailto:)", u) else f"https://{u}"
+    return u.replace("%", r"\%").replace("#", r"\#")
+
+
+def _num(v: Any, default: float, lo: float, hi: float) -> float:
+    """A style number from the client, clamped; anything else becomes the default."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return min(hi, max(lo, f)) if f == f else default
 
 
 def _short(u: str) -> str:
@@ -136,23 +148,23 @@ def render(data: Dict[str, Any], header: Dict[str, Any], style: Dict[str, Any], 
     style = style or {}
     contact = contact or {}
     family = style.get("family") or "computer_modern"
-    base = float(style.get("base_pt") or 10.5)
+    base = _num(style.get("base_pt"), 10.5, 8, 14)
     cls_pt = 10 if base < 10.75 else 11 if base < 11.75 else 12
     paper = "a4paper" if style.get("paper") == "a4" else "letterpaper"
-    m = style.get("margins_pt") or {}
-    left, right = max(28, m.get("left", 50)), max(28, m.get("right", 50))
-    top = max(18, (m.get("top") or 36) - 6)
-    name = style.get("name") or {}
-    head = style.get("heading") or {}
+    m = style.get("margins_pt") if isinstance(style.get("margins_pt"), dict) else {}
+    left, right = _num(m.get("left"), 50, 28, 120), _num(m.get("right"), 50, 28, 120)
+    top = _num(m.get("top"), 36, 24, 120) - 6
+    name = style.get("name") if isinstance(style.get("name"), dict) else {}
+    head = style.get("heading") if isinstance(style.get("heading"), dict) else {}
     modern = bool(style.get("muted_color"))  # a secondary grey for dates/tech marks the "modern" layout
     bullet = _BULLETS.get(style.get("bullet") or "•", r"\textbullet")
     sep = _SEPS.get(style.get("contact_sep") or "|", r"\,\textbar\,")
     link = style.get("link_color")
     link_is_text = not link or link == style.get("body_color")
-    head_pt = float(head.get("size_pt") or base + 1.5)
+    head_pt = _num(head.get("size_pt"), base + 1.5, 8, 20)
     upper_cmd = "\\MakeUppercase" if head.get("upper") else ""
     bold_cmd = "\\bfseries" if name.get("bold", True) else ""
-    name_pt = float(name.get("size_pt") or 20)
+    name_pt = _num(name.get("size_pt"), 20, 10, 36)
 
     pre = [
         f"\\documentclass[{paper},{cls_pt}pt]{{article}}",
@@ -176,7 +188,7 @@ def render(data: Dict[str, Any], header: Dict[str, Any], style: Dict[str, Any], 
         r"\raggedright",
         (f"\\titleformat{{\\section}}{{\\color{{accent}}\\fontsize{{{head_pt}}}{{{head_pt * 1.2:.1f}}}"
          f"\\selectfont\\bfseries{upper_cmd}}}{{}}{{0em}}{{}}"
-         + (f"[{{\\color{{rulecolor}}\\titlerule[{head.get('rule_pt') or 0.4}pt]}}]" if head.get("rule", True) else "")),
+         + (f"[{{\\color{{rulecolor}}\\titlerule[{_num(head.get('rule_pt'), 0.4, 0.1, 3)}pt]}}]" if head.get("rule", True) else "")),
         r"\titlespacing*{\section}{0pt}{7pt}{4pt}",
         r"\begin{document}",
         f"\\fontsize{{{base}}}{{{base * 1.22:.1f}}}\\selectfont\\color{{bodytext}}",
@@ -194,7 +206,7 @@ def render(data: Dict[str, Any], header: Dict[str, Any], style: Dict[str, Any], 
         if k == "phone":
             items.append(esc(v))
         elif k == "email":
-            items.append(f"\\href{{mailto:{v}}}{{{esc(v)}}}")
+            items.append(f"\\href{{{_url('mailto:' + str(v))}}}{{{esc(v)}}}")
         else:
             items.append(f"\\href{{{_url(v)}}}{{{esc(_short(v))}}}")
     location = name.get("beside") or next((c for c in header.get("contact") or [] if "India" in c or "," in c and "@" not in c), "")
@@ -387,8 +399,11 @@ def compile_pdf(tex: str, timeout: int = 150) -> Tuple[Optional[bytes], str]:
     if not exe:
         return None, "No LaTeX engine installed (run ml-service/bin/install_tectonic.sh)."
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env = dict(os.environ)
-    env.setdefault("TECTONIC_CACHE_DIR", os.path.join(here, ".tectonic", "cache"))
+    # Only what Tectonic needs: the service's API keys stay out of the compiler's
+    # reach, and untrusted mode keeps shell escape off whatever the source says.
+    env = {k: os.environ[k] for k in ("PATH", "HOME", "LANG", "TMPDIR") if k in os.environ}
+    env["TECTONIC_CACHE_DIR"] = os.environ.get("TECTONIC_CACHE_DIR") or os.path.join(here, ".tectonic", "cache")
+    env["TECTONIC_UNTRUSTED_MODE"] = "1"
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, "resume.tex")
         with open(src, "w", encoding="utf-8") as f:

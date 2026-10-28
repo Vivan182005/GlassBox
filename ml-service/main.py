@@ -18,7 +18,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from core.llm import llm_status
-from core.db import get_supabase
 from core.ratelimit import Limiter, allowed_origins, client_ip, cost_class
 from ats.profiles import ATS_PROFILES, get_profile, public_profile
 from ats.detector import lookup_company, confirm_company_ats, company_board_jobs
@@ -31,14 +30,28 @@ from matching.ats_check import run_check, tailor
 from application.rating import rate, APPLY_THRESHOLD
 from application.forms import application_form
 from application.answers import answer_form, summarize
-from application import latex, pdf_edit, resume_builder
+from application import assistant, latex, pdf_edit, resume_builder
 from jobs.role_titles import ROLE_TITLES
 from matching.skills_lexicon import _SKILLS
 
-app = FastAPI(title="GlassBox ML Service", description="Resume X-ray, India job network and ATS pass check", version="2.0.0")
+# No interactive docs or schema in production: they map every endpoint for anyone.
+app = FastAPI(title="GlassBox ML Service", description="Resume X-ray, India job network and ATS pass check", version="2.0.0",
+              docs_url=None, redoc_url=None, openapi_url=None)
 
 ORIGINS = allowed_origins()
 limiter = Limiter()
+
+# A resume PDF is at most 8 MB, ~11 MB once base64-encoded in /api/apply/render.
+MAX_BODY_BYTES = 12 * 1024 * 1024
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Cache-Control": "no-store",
+}
 
 
 # Registered before CORS so CORS wraps it and the refusals below still reach
@@ -48,6 +61,12 @@ async def guard(request: Request, call_next):
     origin = request.headers.get("origin")
     if origin and origin.rstrip("/") not in ORIGINS:
         return JSONResponse({"detail": "This site isn't allowed to use the GlassBox API."}, status_code=403)
+    if request.method == "POST":
+        size = request.headers.get("content-length")
+        if size is None or not size.isdigit():
+            return JSONResponse({"detail": "Request size is required."}, status_code=411)
+        if int(size) > MAX_BODY_BYTES:
+            return JSONResponse({"detail": "Request is too large."}, status_code=413)
     if request.url.path.startswith("/api/") and request.method != "OPTIONS":
         refused = limiter.check(client_ip(request.headers, request.client.host if request.client else None),
                                 cost_class(request.url.path))
@@ -55,7 +74,17 @@ async def guard(request: Request, call_next):
             message, wait = refused
             return JSONResponse({"detail": message, "rate_limited": True}, status_code=429,
                                 headers={"Retry-After": str(wait)})
-    return await call_next(request)
+    response = await call_next(request)
+    for k, v in SECURITY_HEADERS.items():
+        response.headers.setdefault(k, v)
+    return response
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    # Log the detail server-side; the caller only learns that it failed.
+    print(f"Unhandled error on {request.url.path}: {type(exc).__name__}: {str(exc)[:300]}")
+    return JSONResponse({"detail": "Something went wrong on our side. Try again."}, status_code=500)
 
 
 app.add_middleware(
@@ -84,7 +113,7 @@ def health():
         "status": "ok", "service": "GlassBox ML Service", "version": app.version,
         "llm": llm_status(),
         "network": {"companies": len(registry), "by_ats": by_ats, **network_status()},
-        "latex": latex.can_compile(), "supabase": get_supabase() is not None,
+        "latex": latex.can_compile(),
     }
 
 
@@ -121,7 +150,8 @@ async def analyze_resume(file: Optional[UploadFile] = File(None), raw_text: Opti
         try:
             read = read_resume(data, file.filename or "resume")
         except Exception as e:
-            raise HTTPException(422, f"Could not read this file: {str(e)[:120]}. Upload a PDF or DOCX.")
+            print("Resume read failed:", type(e).__name__, str(e)[:200])
+            raise HTTPException(422, "Could not read this file. Upload a text-based PDF or DOCX.")
     elif raw_text and raw_text.strip():
         read = read_text(raw_text)
     else:
@@ -167,16 +197,24 @@ class JobSearchRequest(BaseModel):
     max_age_days: Optional[int] = None
     limit: int = 120
     student: bool = False
+    degree: Optional[str] = None
 
 
 @app.post("/api/jobs/search")
 def jobs_search(req: JobSearchRequest):
-    return discover_jobs(req.roles, req.skills, req.years_experience, req.cities, req.max_age_days, req.limit, req.student)
+    return discover_jobs(req.roles[:5], req.skills[:80], min(max(req.years_experience, 0), 50), req.cities[:8],
+                         req.max_age_days, min(max(req.limit, 1), 200), req.student, (req.degree or "")[:60] or None)
 
 
 @app.get("/api/jobs/description")
 def job_description(id: str):
+    if not _JOB_ID.fullmatch(id):
+        raise HTTPException(400, "Malformed job id.")
     return fetch_job_description(id)
+
+
+# '{ats}:{slug}:{native id}' or 'jsearch:{id}'; Workday's native ids are paths.
+_JOB_ID = re.compile(r"[a-z_]+:[^\s\"'<>\\]{1,2000}")
 
 
 # ---------------------------------------------------------------------------
@@ -394,9 +432,11 @@ def apply_resume_tex(req: ResumeFileRequest):
 @app.post("/api/apply/resume.pdf")
 def apply_resume_pdf(req: ResumeFileRequest):
     pdf, renderer = None, "basic"
-    if req.style or req.user_tex:
-        tex, _ = _tex_for(req)
-        pdf, _log = latex.compile_pdf(tex)
+    # Only LaTeX this service generated (every value escaped) is compiled here.
+    # An uploaded .tex can read files on the server (\\input{/proc/...}), so it is
+    # edited and returned as source for Overleaf, never compiled.
+    if req.style:
+        pdf, _log = latex.compile_pdf(latex.render(req.resume, req.header, req.style, req.plan, req.contact))
         renderer = "latex" if pdf else "basic"
     if pdf is None:
         pdf = resume_builder.to_pdf(req.resume, req.header)
@@ -411,6 +451,25 @@ def apply_resume_docx(req: ResumeFileRequest):
     return Response(resume_builder.to_docx(req.resume, req.header),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{name}.docx"'})
+
+
+# ---------------------------------------------------------------------------
+# Ask GlassBox: the in-app assistant
+# ---------------------------------------------------------------------------
+
+class AssistantRequest(BaseModel):
+    messages: List[Dict[str, Any]]
+    context: Dict[str, Any] = {}
+
+
+@app.post("/api/assistant")
+def ask_assistant(req: AssistantRequest):
+    if not req.messages or len(req.messages) > 40:
+        raise HTTPException(400, "Send between 1 and 40 messages.")
+    reply = assistant.answer(req.messages, req.context)
+    if not reply:
+        raise HTTPException(503, "The assistant is unavailable right now. Try again in a minute.")
+    return {"reply": reply.strip()}
 
 
 # ---------------------------------------------------------------------------
@@ -453,4 +512,7 @@ class CompanyConfirmRequest(BaseModel):
 
 @app.post("/api/company/confirm")
 def company_confirm(req: CompanyConfirmRequest):
-    return confirm_company_ats(req.company, req.ats_id)
+    try:
+        return confirm_company_ats(req.company, req.ats_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))

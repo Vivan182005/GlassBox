@@ -206,6 +206,23 @@ def score_job(job: Dict[str, Any], roles: List[str], expansion, cand_skills: Dic
     }
 
 
+_BACHELOR = re.compile(r"\b(b\.?\s?tech|b\.?\s?e|bachelor'?s?|b\.?\s?sc|bca|bba|b\.?\s?com|undergrad\w*)\b", re.I)
+_HIGHER = re.compile(r"\b(master'?s|m\.?\s?tech|m\.?\s?sc|ms|mba|ph\.?\s?d|doctoral|post\s?-?grad\w*)\b", re.I)
+
+
+def _degree_gap(jobs: List[Dict[str, Any]], degree: Optional[str]) -> List[Dict[str, Any]]:
+    """A bachelor's candidate sees postings whose title asks for a Master's or
+    PhD lower down, with the reason, instead of at the top."""
+    if not degree or not _BACHELOR.search(degree) or _HIGHER.search(degree):
+        return jobs
+    out = []
+    for j in jobs:
+        if _HIGHER.search(j["title"]) and not _BACHELOR.search(j["title"]):
+            j = {**j, "fit": round(j["fit"] * 0.6), "seniority_note": "Title asks for a postgraduate degree; your resume shows a bachelor's"}
+        out.append(j)
+    return out
+
+
 def _within_reach(jobs: List[Dict[str, Any]], years: float, hidden: Dict[str, int]) -> List[Dict[str, Any]]:
     cand = candidate_level(years)
     out = []
@@ -235,7 +252,8 @@ def _dedupe(jobs: List[Dict[str, Any]], hidden: Dict[str, int]):
 
 
 def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, cities: Optional[List[str]] = None,
-                  max_age_days: Optional[int] = None, limit: int = 120, student: bool = False) -> Dict[str, Any]:
+                  max_age_days: Optional[int] = None, limit: int = 120, student: bool = False,
+                  degree: Optional[str] = None) -> Dict[str, Any]:
     started = time.time()
     roles = [r.strip() for r in roles if r and r.strip()][:5]
     if not roles:
@@ -327,6 +345,7 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     # seniority or years than the resume shows.
     hidden = {"too_senior": 0, "duplicates": 0}
     ranked, network_ranked = _within_reach(ranked, years, hidden), _within_reach(network_ranked, years, hidden)
+    ranked, network_ranked = _degree_gap(ranked, degree), _degree_gap(network_ranked, degree)
     ranked, network_ranked = _dedupe(ranked + network_ranked, hidden)
 
     jobs_out = []

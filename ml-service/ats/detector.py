@@ -26,6 +26,7 @@ import requests
 
 from ats.profiles import ATS_PROFILES, get_profile, public_profile
 from core.llm import llm_json
+from core.netsafe import safe_get
 from jobs.boards import load_registry, fetch_company_jobs, is_india
 
 CACHE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ats_lookup_cache.json")
@@ -183,7 +184,7 @@ def _probe_tenant(ats: str, slug: str, company: str) -> Optional[Dict[str, Any]]
     template, is_live = _TENANT_PAGES[ats]
     # A crawler user agent gets the server-rendered page, which names the tenant;
     # browsers get an identical JavaScript shell for real and unknown tenants.
-    r = requests.get(template.format(slug=slug), headers=CRAWLER_HEADERS, timeout=8, allow_redirects=True)
+    r = safe_get(template.format(slug=slug), headers=CRAWLER_HEADERS, timeout=8)
     if r.status_code != 200 or not is_live(r.url, r.text):
         return None
     title = re.search(r"<title>\s*([^<\s][^<]{0,119})", r.text)
@@ -211,7 +212,7 @@ def _probe_all(company: str) -> List[Dict[str, Any]]:
 
 def _fetch(url: str) -> Tuple[str, str]:
     try:
-        r = requests.get(url, headers=HEADERS, timeout=7, allow_redirects=True)
+        r = safe_get(url, headers=HEADERS, timeout=7)
         if r.status_code < 400 and "html" in r.headers.get("content-type", "html"):
             return r.url, r.text[:600_000]
     except Exception:
@@ -392,9 +393,18 @@ def lookup_company(company: str, use_cache: bool = True) -> Dict[str, Any]:
 
 
 def confirm_company_ats(company: str, ats_id: str) -> Dict[str, Any]:
+    from ats.profiles import PROFILE_BY_ID
+    company = company.strip()[:120]
+    if not _norm(company) or (ats_id or "").lower() not in PROFILE_BY_ID:
+        raise ValueError("Unknown company or ATS.")
     profile = get_profile(ats_id)
-    res = _result(company.strip(), "verified", profile, 1.0, "user_confirmed",
+    res = _result(company, "verified", profile, 1.0, "user_confirmed",
                   [{"step": "User confirmation", "outcome": "hit", "detail": f"Confirmed as {profile['name']} by a user"}])
+    # The cache is shared by every user, so a confirmation can fill a gap but
+    # never overwrite an ATS that was found on the company's real job board.
+    prior = _load_cache().get(_norm(company)) or {}
+    if prior.get("status") == "verified" and prior.get("method") not in ("user_confirmed", None):
+        return prior
     _save_cache(_norm(company), res)
     return res
 

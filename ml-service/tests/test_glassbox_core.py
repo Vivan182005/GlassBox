@@ -290,5 +290,27 @@ class TestApplyFlow(unittest.TestCase):
         self.assertTrue(any("Power BI" in n for n in notes))
 
 
+class DegreeGapTests(unittest.TestCase):
+    def test_postgrad_titles_rank_lower_for_bachelors(self):
+        from jobs.discovery import _degree_gap
+        jobs = [{"title": "GenAI Engineer Intern- Master's Degree", "fit": 100},
+                {"title": "ML Intern (B.Tech/M.Tech)", "fit": 90},
+                {"title": "Software Engineer Intern", "fit": 80}]
+        out = _degree_gap(jobs, "B.Tech")
+        self.assertEqual([j["fit"] for j in out], [60, 90, 80])
+        self.assertIn("postgraduate", out[0]["seniority_note"])
+        self.assertEqual(_degree_gap(jobs, "M.Tech"), jobs)  # already postgraduate
+        self.assertEqual(_degree_gap(jobs, None), jobs)
+
+
+class NameTests(unittest.TestCase):
+    def test_name_is_spelled_as_on_the_resume(self):
+        from parsing.profile_extractor import _name_from
+        text = "VIVAN JEEVAN NAIK\nBengaluru, India"
+        self.assertEqual(_name_from(text, "Vivan Jeeban Naik", "VIVAN JEEVAN NAIK"), "Vivan Jeevan Naik")  # model typo ignored
+        self.assertEqual(_name_from("Asha Rao\nPune", "Asha Rao", "Asha"), "Asha Rao")  # fullest version in the text
+        self.assertIsNone(_name_from("no name here", None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

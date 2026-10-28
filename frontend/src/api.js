@@ -59,6 +59,7 @@ export const api = {
     .then(r => ({ blob: r.data, headers: r.headers })),
   resumeTex: (body) => http.post('/api/apply/resume.tex', body).then(r => r.data),
   renderApplication: (body) => http.post('/api/apply/render', body).then(r => r.data),
+  ask: (body) => http.post('/api/assistant', body, { timeout: 60000 }).then(r => r.data),
 };
 
 export default http;

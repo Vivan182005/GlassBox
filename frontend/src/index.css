@@ -487,3 +487,42 @@ mark.ins { background: rgba(63, 93, 69, 0.14); color: var(--forest); padding: 0 
 }
 .combo-list li { padding: 6px 10px; font-size: 14px; border-radius: 7px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .combo-list li.on { background: var(--surface-2); color: var(--ink); }
+
+/* ---------- Ask GlassBox (assistant) ---------- */
+.assistant-fab {
+  position: fixed; right: 22px; bottom: 22px; z-index: 70;
+  display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 18px;
+  border-radius: 999px; border: 1px solid var(--ink); background: var(--ink); color: #f5f1e6;
+  font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  box-shadow: var(--shadow); cursor: pointer;
+}
+.assistant-fab:hover { background: #45392f; }
+.assistant {
+  position: fixed; right: 22px; bottom: 22px; z-index: 70;
+  width: min(400px, calc(100vw - 32px)); height: min(600px, calc(100vh - 44px));
+  display: flex; flex-direction: column;
+  background: var(--card-bg); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(51, 40, 30, 0.22); animation: fade .2s ease;
+}
+.assistant-head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); }
+.assistant-head strong { font-family: var(--font-display); font-size: 15px; }
+.assistant-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.assistant-empty { display: flex; flex-direction: column; gap: 12px; }
+.assistant-suggest { display: flex; flex-wrap: wrap; gap: 8px; }
+.assistant-suggest .chip { cursor: pointer; text-align: left; }
+.assistant-msg { max-width: 90%; padding: 10px 13px; border-radius: var(--radius); font-size: 14.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-msg.user { align-self: flex-end; background: var(--ink); color: #f5f1e6; }
+.assistant-msg.assistant { align-self: flex-start; background: var(--surface-2); color: var(--text); white-space: normal; }
+.assistant-msg.error { background: rgba(168, 68, 47, 0.08); color: var(--brick); }
+.assistant-reply p + p, .assistant-reply p + ul, .assistant-reply ul + p { margin-top: 8px; }
+.assistant-reply ul { padding-left: 18px; }
+.assistant-reply li + li { margin-top: 4px; }
+.assistant-input { display: flex; gap: 8px; align-items: flex-end; padding: 12px 12px 6px; border-top: 1px solid var(--border); }
+.assistant-input textarea { flex: 1; resize: none; min-height: 44px; max-height: 120px; padding: 10px 12px; font-family: var(--font); font-size: 14.5px; }
+.assistant-input .btn { height: 44px; padding: 0 14px; }
+.assistant-note { padding: 0 14px 10px; }
+@media (max-width: 640px) {
+  .assistant { right: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; }
+  .assistant-fab { right: 16px; bottom: 16px; }
+  .assistant-fab span { display: none; }
+}

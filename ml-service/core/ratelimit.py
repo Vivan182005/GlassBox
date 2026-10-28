@@ -42,7 +42,7 @@ LIMITS: Dict[str, Tuple[int, int, int]] = {
 
 _LLM_PATHS = (
     "/api/resume/analyze", "/api/resume/ats-view", "/api/check", "/api/apply/",
-    "/api/company/lookup", "/api/company/confirm",
+    "/api/company/lookup", "/api/company/confirm", "/api/assistant",
 )
 
 

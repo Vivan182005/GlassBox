@@ -8,6 +8,7 @@ import JobsView, { cityFromLocation } from './views/JobsView';
 import CompanyView from './views/CompanyView';
 import ApplicationsView from './views/ApplicationsView';
 import Footer from './components/Footer';
+import Assistant from './components/Assistant';
 import { useExtension } from './lib/extension';
 import { api } from './api';
 import { storage } from './lib/format';
@@ -142,6 +143,8 @@ export default function App() {
           onClose={() => setApplyJob(null)} notify={notify} goScan={() => setView('scan')} />
       )}
       {checkJob && <CheckDrawer job={checkJob} analysis={analysis} onClose={() => setCheckJob(null)} notify={notify} goScan={() => setView('scan')} />}
+      <Assistant view={view} analysis={analysis} roles={roles} jobResults={jobResults} ratings={ratings}
+        applications={applications} focusJob={applyJob || checkJob} />
       <Toast message={toast?.message} kind={toast?.kind} onClose={() => setToast(null)} />
     </>
   );

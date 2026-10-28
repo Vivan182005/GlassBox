@@ -289,6 +289,19 @@ SYSTEM_PROMPT = (
 )
 
 
+def _name_from(text: str, llm_name: Optional[str], rule_name: Optional[str]) -> Optional[str]:
+    """The candidate's name exactly as the resume spells it. The model's version
+    is used only when it appears in the text: it sometimes retypes a name with
+    a letter changed. All-caps headers become ordinary capitalisation for forms."""
+    flat = re.sub(r"\s+", " ", text or "").lower()
+    found = [n.strip() for n in (rule_name, llm_name) if n and n.strip() and re.sub(r"\s+", " ", n.strip()).lower() in flat]
+    name = max(found, key=len) if found else None
+    name = name or rule_name or llm_name
+    if name and name.isupper():
+        name = " ".join(w.capitalize() for w in name.split())
+    return name
+
+
 def extract_profile(text: str, layout_audit: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     text = (text or "").strip()
     warnings: List[str] = []
@@ -358,7 +371,7 @@ def extract_profile(text: str, layout_audit: Optional[Dict[str, Any]] = None) ->
         roles = list(dict.fromkeys(roles))
 
     profile = {
-        "name": (llm or {}).get("name") or rules["name"],
+        "name": _name_from(text, (llm or {}).get("name"), rules["name"]),
         "headline": headline,
         "target_roles": roles[:6],
         "student": student,

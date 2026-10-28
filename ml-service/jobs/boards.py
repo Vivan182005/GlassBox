@@ -358,7 +358,8 @@ def fetch_job_description(job_id: str) -> Dict[str, Any]:
     except ValueError:
         return {"description": "", "url": None, "error": "Malformed job id"}
     company = next((c for c in load_registry() if c["slug"] == slug and c["ats"] == ats), None)
-    if not company and ats in ("greenhouse", "lever", "ashby"):
+    if not company and ats in ("greenhouse", "lever", "ashby") and re.fullmatch(r"[A-Za-z0-9._-]{1,100}", slug) \
+            and re.fullmatch(r"[A-Za-z0-9._-]{1,100}", native):
         # Found through a job site, on a board outside the curated network.
         company = {"ats": ats, "slug": slug, "name": slug}
     if not company:
