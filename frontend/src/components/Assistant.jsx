@@ -4,6 +4,26 @@ import { api, errorMessage } from '../api';
 import { storage } from '../lib/format';
 import { Spinner } from './ui/primitives';
 
+// The facts behind a job's rating, exactly as the app computed them, so the
+// assistant explains the score instead of guessing what the posting says.
+function jobFacts(j, rating) {
+  const facts = {
+    title: j.title, company: j.company, location: j.location, via: j.via || 'company career page',
+    fit: j.fit, skills_matched: j.matched_skills, skills_missing: j.missing_skills,
+    seniority: j.seniority_note || undefined,
+    years_required: j.min_years ?? j.listed_min_years ?? undefined,
+  };
+  if (rating) {
+    facts.rating = rating.score;
+    facts.verdict = rating.label;
+    facts.advice = rating.advice;
+    facts.rating_breakdown = (rating.dimensions || []).map(d => `${d.label} ${d.score}/5: ${d.detail}`);
+  } else {
+    facts.rating = 'not rated yet';
+  }
+  return facts;
+}
+
 // What the assistant may see: only what the app already shows this user,
 // trimmed so a question stays small.
 function buildContext({ view, analysis, roles, jobResults, ratings, applications, focusJob }) {
@@ -23,19 +43,23 @@ function buildContext({ view, analysis, roles, jobResults, ratings, applications
       issues: (analysis.audit?.issues || []).map(i => i.title),
       weakest_ats: [...(analysis.ats_scores || [])].sort((a, b) => a.score - b.score).slice(0, 3).map(s => `${s.name}: ${s.score}`),
     };
-    ctx.resume_text = (analysis.resume_text || '').slice(0, 4000);
   }
   if (jobResults?.jobs?.length) {
-    ctx.jobs_on_screen = jobResults.jobs.slice(0, 10).map(j => ({
-      title: j.title, company: j.company, location: j.location, fit: j.fit,
-      rating: ratings?.[j.id]?.score, via: j.via || 'company career page',
-    }));
+    const s = jobResults.stats || {};
+    ctx.job_search = {
+      matching_roles: jobResults.jobs.length,
+      rated_4_plus: jobResults.jobs.filter(j => ratings?.[j.id]?.score >= 4).length,
+      rated: jobResults.jobs.filter(j => ratings?.[j.id]).length,
+      hidden_as_too_senior: s.hidden_too_senior, duplicates_removed: s.hidden_duplicates,
+    };
+    ctx.jobs_on_screen = jobResults.jobs.slice(0, 10).map(j => jobFacts(j, ratings?.[j.id]));
   }
   if (applications?.length) ctx.applications = applications.slice(0, 10).map(a => ({ title: a.title, company: a.company, status: a.status }));
   if (focusJob) {
-    ctx.open_job = { title: focusJob.title, company: focusJob.company, location: focusJob.location,
-      description: (focusJob.description || '').slice(0, 2500) || undefined };
+    ctx.open_job = { ...jobFacts(focusJob, ratings?.[focusJob.id]), description: (focusJob.description || '').slice(0, 2500) || undefined };
   }
+  // Last, so the server's size cap trims the resume text rather than the job facts.
+  if (analysis?.resume_text) ctx.resume_text = analysis.resume_text.slice(0, 3000);
   return ctx;
 }
 
