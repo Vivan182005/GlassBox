@@ -22,7 +22,7 @@ from ats.profiles import ATS_PROFILES, get_profile, public_profile
 from ats.detector import lookup_company, confirm_company_ats, company_board_jobs
 from jobs.boards import load_registry, fetch_job_description, INDIA_CITIES
 from jobs.discovery import discover_jobs, warm_cache, expand_roles, score_job
-from jobs.network import RAPIDAPI_KEY, search_links, company_listings
+from jobs.network import RAPIDAPI_KEY, company_listings, network_status, search_links
 from parsing.resume_reader import read_resume, read_text, audit, parse_score, ats_view
 from parsing.profile_extractor import extract_profile
 from matching.ats_check import run_check, tailor
@@ -60,7 +60,7 @@ def health():
     return {
         "status": "ok", "service": "GlassBox ML Service", "version": app.version,
         "llm": llm_status(),
-        "network": {"companies": len(registry), "by_ats": by_ats, "jsearch": bool(RAPIDAPI_KEY)},
+        "network": {"companies": len(registry), "by_ats": by_ats, **network_status()},
         "latex": latex.can_compile(), "supabase": get_supabase() is not None,
     }
 

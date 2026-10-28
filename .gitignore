@@ -38,3 +38,4 @@ ml-service/data/jd_analysis_cache.json
 
 # LaTeX engine (installed by ml-service/bin/install_tectonic.sh)
 .tectonic/
+ml-service/data/network_jobs.json

@@ -350,11 +350,17 @@ def find_company(slug_or_name: str) -> Optional[Dict[str, Any]]:
 
 def fetch_job_description(job_id: str) -> Dict[str, Any]:
     """job_id has the form '{ats}:{slug}:{native id}'. Returns {description, url}."""
+    if job_id.startswith(("jsearch:", "adzuna:")):
+        from jobs.network import network_description
+        return network_description(job_id)
     try:
         ats, slug, native = job_id.split(":", 2)
     except ValueError:
         return {"description": "", "url": None, "error": "Malformed job id"}
     company = next((c for c in load_registry() if c["slug"] == slug and c["ats"] == ats), None)
+    if not company and ats in ("greenhouse", "lever", "ashby"):
+        # Found through a job site, on a board outside the curated network.
+        company = {"ats": ats, "slug": slug, "name": slug}
     if not company:
         return {"description": "", "url": None, "error": "Unknown company"}
 

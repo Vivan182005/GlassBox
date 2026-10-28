@@ -93,6 +93,20 @@ function ConfirmProfile({ analysis, roles, setRoles, prefs, setPrefs, skills, on
   );
 }
 
+// Where results came from, what was hidden, and which job-site sources are off.
+function SourcesNote({ stats }) {
+  if (!stats) return null;
+  const off = [!stats.sources?.jsearch && 'LinkedIn, Naukri and Indeed (JSearch)', !stats.sources?.adzuna && 'Indian job boards (Adzuna)'].filter(Boolean);
+  return (
+    <div className="tiny faint" style={{ margin: '0 4px 14px', lineHeight: 1.6 }}>
+      From {stats.companies_scanned} company career pages{stats.network_results ? ` and ${stats.network_results} job-site listings` : ''}.
+      {stats.hidden_too_senior > 0 && <> Hid {stats.hidden_too_senior} roles that ask for more seniority or years than your resume shows.</>}
+      {stats.hidden_duplicates > 0 && <> Removed {stats.hidden_duplicates} duplicates.</>}
+      {off.length > 0 && <span style={{ color: 'var(--amber)' }}> Not searched yet: {off.join(' and ')}. These need API keys on the server.</span>}
+    </div>
+  );
+}
+
 function JobCard({ job, onCheck, onApply, rating, rating_busy, applied, delay }) {
   const posted = job.posted_hours != null && job.posted_hours < 24 ? `${Math.max(1, Math.round(job.posted_hours))}h ago` : postedLabel(job.posted_days);
   const recommended = rating ? rating.score >= APPLY_THRESHOLD : null;
@@ -105,7 +119,7 @@ function JobCard({ job, onCheck, onApply, rating, rating_busy, applied, delay })
           <span style={{ color: 'var(--text)' }}>{job.company}</span>
           <span className="row" style={{ gap: 4 }}><MapPin size={13} />{job.location}</span>
           {posted && <span className="row" style={{ gap: 4 }}><Clock size={13} />{posted}</span>}
-          {job.source === 'network' && <span className="faint">via {job.via}</span>}
+          {job.source === 'network' && <span className="faint">via {job.via}{job.description_partial ? ' (excerpt only)' : ''}</span>}
         </div>
         <div className="row wrap" style={{ gap: 6, marginTop: 10 }}>
           {job.ats_name ? <AtsBadge id={job.ats_id} name={job.ats_name} small /> : <span className="badge badge-neutral">ATS unknown</span>}
@@ -126,7 +140,7 @@ function JobCard({ job, onCheck, onApply, rating, rating_busy, applied, delay })
           {applied ? (
             <span className="chip sm good"><BadgeCheck size={12} /> Applied</span>
           ) : (
-            <button className={`btn sm ${recommended === false ? '' : 'primary'}`} onClick={() => onApply(job)} disabled={job.source === 'network'}
+            <button className={`btn sm ${recommended === false ? '' : 'primary'}`} onClick={() => onApply(job)} disabled={job.has_description === false}
               title={recommended === false ? 'Below 4.0: GlassBox suggests skipping' : 'Tailor, answer and apply'}>
               <Send size={13} /> Apply
             </button>
@@ -182,7 +196,7 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
       });
       setEditing(false);
       setResults({ ...res, key: JSON.stringify([roles, filters]) });
-      if (analysis) rate((res.jobs || []).filter(j => j.has_description !== false && j.source !== 'network').slice(0, 10));
+      if (analysis) rate((res.jobs || []).filter(j => j.has_description !== false).slice(0, 10));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -223,7 +237,7 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
     if (sort === 'rating') list = [...list].sort((a, b) => (ratings[b.id]?.score ?? 0) - (ratings[a.id]?.score ?? 0) || b.fit - a.fit);
     return list;
   }, [results, atsFilter, sort, onlyGood, ratings]);
-  const unrated = jobs.filter(j => !ratings[j.id] && j.source !== 'network');
+  const unrated = jobs.filter(j => !ratings[j.id] && j.has_description !== false);
   const good = (results?.jobs || []).filter(j => ratings[j.id]?.score >= APPLY_THRESHOLD).length;
 
   return (
@@ -334,6 +348,8 @@ export default function JobsView({ analysis, roles, setRoles, results, setResult
               </button>
             </div>
           )}
+
+          <SourcesNote stats={results.stats} />
 
           {stale && <div className="tiny" style={{ color: 'var(--amber)', margin: '0 4px 12px' }}>Filters changed. Hit "Search jobs" to refresh the results.</div>}
 

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from core.llm import llm_json
 from jobs.boards import load_registry, fetch_company_jobs, fetch_job_description, posted_hours
-from jobs.network import jsearch, search_links
+from jobs.network import adzuna, jsearch, network_status, search_links
 from matching.skills_lexicon import find_skills, SOFT_CATEGORY, skill_category
 from matching.ats_check import years_required
 
@@ -206,6 +206,34 @@ def score_job(job: Dict[str, Any], roles: List[str], expansion, cand_skills: Dic
     }
 
 
+def _within_reach(jobs: List[Dict[str, Any]], years: float, hidden: Dict[str, int]) -> List[Dict[str, Any]]:
+    cand = candidate_level(years)
+    out = []
+    for j in jobs:
+        level = title_level(j["title"])
+        need = j.get("min_years") if j.get("min_years") is not None else j.get("listed_min_years")
+        if (level >= 3 and level - cand > 1.3) or (need is not None and need - years > 1.5):
+            hidden["too_senior"] += 1
+            continue
+        out.append(j)
+    return out
+
+
+def _dedupe(jobs: List[Dict[str, Any]], hidden: Dict[str, int]):
+    """The same opening listed twice (several cities, or a board and a job
+    site): the first, best-ranked copy wins. Returns (board jobs, site jobs)."""
+    seen = set()
+    boards, sites = [], []
+    for j in jobs:
+        key = (re.sub(r"\W+", "", (j.get("company") or "").lower())[:20], re.sub(r"\W+", " ", j["title"].lower()).strip())
+        if key in seen or (j["id"] in seen):
+            hidden["duplicates"] += 1
+            continue
+        seen.update([key, j["id"]])
+        (sites if j.get("source") == "network" else boards).append(j)
+    return boards, sites
+
+
 def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, cities: Optional[List[str]] = None,
                   max_age_days: Optional[int] = None, limit: int = 120, student: bool = False) -> Dict[str, Any]:
     started = time.time()
@@ -224,13 +252,27 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     def fetch(company):
         return company, fetch_company_jobs(company, roles)
 
+    # Job sites (LinkedIn, Naukri, Indeed… via JSearch; Indian boards via
+    # Adzuna) are searched at the same time as the company boards.
+    where = cities[0] if cities and cities[0] != "Remote" else ""
+    wants_intern = student or any(re.search(r"\bintern", r, re.I) for r in roles)
+    site_calls = [(jsearch, (r, where, 1, max_age_days, wants_intern and bool(re.search(r"\bintern", r, re.I)))) for r in roles[:3]]
+    site_calls += [(adzuna, (r, where, max_age_days)) for r in roles[:3]]
+    network_jobs: List[Dict[str, Any]] = []
+
     with cf.ThreadPoolExecutor(max_workers=48) as ex:
+        site_futures = [ex.submit(fn, *args) for fn, args in site_calls]
         futures = [ex.submit(fetch, c) for c in registry]
         for fut in cf.as_completed(futures):
             try:
                 company, jobs = fut.result()
                 scanned += 1
                 raw.extend(jobs)
+            except Exception as e:
+                failed.append(str(e)[:80])
+        for fut in site_futures:
+            try:
+                network_jobs.extend(fut.result())
             except Exception as e:
                 failed.append(str(e)[:80])
 
@@ -277,15 +319,20 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
         refreshed.append(j)
     ranked = sorted(refreshed, key=lambda j: j["fit"], reverse=True)
 
-    network_jobs = []
-    for role in roles[:2]:
-        network_jobs.extend(jsearch(role, cities[0] if cities and cities[0] != "Remote" else ""))
-    network_ranked = [score_job(j, roles, expansion, cand_skills, years, student) for j in network_jobs if title_match(j["title"], roles, expansion) > 0]
+    network_ranked = [score_job(j, roles, expansion, cand_skills, years, student) for j in network_jobs
+                      if city_ok(j) and title_match(j["title"], roles, expansion) > 0]
+    network_ranked.sort(key=lambda j: j["fit"], reverse=True)
+
+    # Only roles this person can get now: nothing that asks for clearly more
+    # seniority or years than the resume shows.
+    hidden = {"too_senior": 0, "duplicates": 0}
+    ranked, network_ranked = _within_reach(ranked, years, hidden), _within_reach(network_ranked, years, hidden)
+    ranked, network_ranked = _dedupe(ranked + network_ranked, hidden)
 
     jobs_out = []
-    for j in ranked[:limit] + network_ranked[:40]:
+    for j in sorted(ranked[:limit] + network_ranked[:60], key=lambda j: j["fit"], reverse=True):
         out = {k: v for k, v in j.items() if k != "description"}
-        out["has_description"] = bool(j.get("description"))
+        out["has_description"] = bool(j.get("description")) or not j["id"].startswith(("jsearch:", "adzuna:"))
         h = posted_hours(j)
         out["posted_hours"] = round(h, 1) if h is not None else None
         jobs_out.append(out)
@@ -307,6 +354,9 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
             "companies_hiring": len(companies),
             "by_ats": by_ats,
             "network_results": len(network_ranked),
+            "hidden_too_senior": hidden["too_senior"],
+            "hidden_duplicates": hidden["duplicates"],
+            "sources": network_status(),
             "elapsed_seconds": round(time.time() - started, 1),
         },
         "title_phrases": expansion["include"][:40],
