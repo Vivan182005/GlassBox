@@ -304,6 +304,17 @@ class DegreeGapTests(unittest.TestCase):
         self.assertEqual(_degree_gap(jobs, None), jobs)
 
 
+class StatedYearsTests(unittest.TestCase):
+    def test_model_years_must_appear_in_the_posting(self):
+        from matching.ats_check import _stated_years
+        self.assertIsNone(_stated_years(5, "Associate product owner for our LLM platform.", "Product Owner", None))
+        self.assertEqual(_stated_years(5, "You have 5+ years of product experience.", "PM", None), 5.0)
+        self.assertEqual(_stated_years(10, "10-15 years of progressive experience", "Manager", None), 10.0)
+        self.assertEqual(_stated_years(3, "3 to 5 yrs in analytics", "Analyst", None), 3.0)
+        self.assertEqual(_stated_years(2, "We are 15 years old", "Analyst", 1.0), 1.0)  # falls back to the text reader
+        self.assertEqual(_stated_years(None, "", "", 2.0), 2.0)
+
+
 class RoleSplitTests(unittest.TestCase):
     def test_field_names_from_a_headline_are_not_roles(self):
         from parsing.profile_extractor import _split_roles

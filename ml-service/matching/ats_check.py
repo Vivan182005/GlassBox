@@ -62,6 +62,17 @@ def _section(text: str, header: str) -> str:
 _YEARS_RE = re.compile(r"(\d{1,2}(?:\.\d)?)\s*\+?\s*(?:-|–|to)?\s*(\d{1,2})?\s*\+?\s*(?:years?|yrs?)", re.IGNORECASE)
 
 
+def _stated_years(model_years: Any, jd: str, title: str, rule_years: Optional[float]) -> Optional[float]:
+    """The model's years figure only when the posting actually states that
+    number of years; otherwise it guessed from the job's level, and a guess
+    must not mark a fresher down."""
+    if not isinstance(model_years, (int, float)) or isinstance(model_years, bool) or not 0 < model_years <= 30:
+        return rule_years
+    n = re.escape(f"{model_years:g}")
+    stated = re.search(rf"(?<![\d.]){n}\s*\+?\s*(?:(?:-|–|to)\s*\d+\s*)?(?:\+\s*)?(?:years?|yrs?)\b", f"{title}\n{jd}", re.I)
+    return float(model_years) if stated else rule_years
+
+
 def years_required(jd: str, title: str = "") -> Optional[float]:
     """The overall experience requirement. A range in the title wins; otherwise
     the largest 'N+ years of experience' statement, since smaller numbers in a
@@ -182,7 +193,7 @@ def _analyze_jd(jd: str, title: str = "") -> Dict[str, Any]:
             must.append(s)
     return {
         "title": data.get("title") or title,
-        "min_years": data.get("min_years") if isinstance(data.get("min_years"), (int, float)) else rules["min_years"],
+        "min_years": _stated_years(data.get("min_years"), jd, title, rules["min_years"]),
         "degree": data.get("degree") or rules["degree"],
         "must_have": must, "nice_to_have": nice,
         "soft_skills": clean(data.get("soft_skills"), 8),
