@@ -14,7 +14,7 @@ import concurrent.futures as cf
 from typing import Any, Dict, List, Optional
 
 from core.llm import llm_json
-from jobs.boards import load_registry, fetch_company_jobs, fetch_job_description, posted_hours
+from jobs.boards import load_registry, fetch_company_jobs, fetch_job_description, india_cities_in, posted_hours
 from jobs.network import jsearch, network_status, search_links
 from matching.skills_lexicon import find_skills, SOFT_CATEGORY, skill_category
 from matching.ats_check import years_required
@@ -240,7 +240,8 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     roles = [r.strip() for r in roles if r and r.strip()][:5]
     if not roles:
         return {"status": "error", "message": "Add at least one target role.", "jobs": []}
-    cities = [c for c in (cities or []) if c]
+    # Canonical names, so "Bangalore" or "Gurgaon" match like the app's "Bengaluru" / "Delhi NCR".
+    cities = list(dict.fromkeys(c if c == "Remote" else (india_cities_in(c) or [c])[0] for c in (cities or []) if c))
     cand_skills = {s: 1 for s in skills}
     years = float(years or 0.0)
     expansion = expand_roles(roles)
