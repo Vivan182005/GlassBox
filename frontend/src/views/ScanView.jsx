@@ -353,8 +353,10 @@ function parseChecks(audit, profile) {
       why: has(audit, 'hidden_links') ? 'LinkedIn/GitHub are only clickable words; the URL is lost.' : 'URLs are visible text.' },
     { ok: Boolean(s.experience || s.projects) && Boolean(s.education) && Boolean(s.skills) && !(audit.nonstandard_sections || []).length,
       label: 'Standard section headings', why: `Found: ${Object.keys(s).join(', ') || 'none'}${(audit.nonstandard_sections || []).length ? '; creative headings may not be recognised' : ''}.` },
-    { ok: profile.experience_source !== 'none_found', label: 'Dates are readable',
-      why: profile.experience_source === 'none_found' ? 'No date ranges an ATS can parse.' : 'Date ranges parse into experience.' },
+    // With no work history there are no job dates to parse, which isn't a problem.
+    { ok: profile.experience_source !== 'none_found' || !s.experience, label: 'Dates are readable',
+      why: profile.experience_source !== 'none_found' ? 'Date ranges parse into experience.'
+        : s.experience ? 'No date ranges an ATS can parse.' : 'No work history yet, so there are no job dates to read.' },
     { ok: (audit.pages || 1) <= 2, label: 'Length', why: `${audit.pages || 1} page${(audit.pages || 1) > 1 ? 's' : ''}.` },
   ];
 }

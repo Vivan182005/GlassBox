@@ -255,10 +255,13 @@ def _split_roles(items: List[Any]) -> List[str]:
             part = part.strip(" -–")
             if 2 < len(part) <= 60 and part.lower() not in {o.lower() for o in out}:
                 out.append(part)
-    # "AI Product" or "Data" from a headline names a field, not a job: keep it
-    # only when nothing else in the list is an actual job title.
-    titled = [r for r in out if _ROLE_WORD.search(r)]
-    return titled or out
+    # Only actual job titles: "AI Product" or "data science" from a headline
+    # name a field, and "AI/ML undergraduate seeking internship in AI" is a
+    # sentence. With none left, the caller infers roles from the skills.
+    return [r for r in out if _ROLE_WORD.search(r) and len(r.split()) <= 6 and not _NOT_A_TITLE.search(r)]
+
+
+_NOT_A_TITLE = re.compile(r"\b(seeking|looking|aspiring|passionate|undergraduate|student|graduate|enthusiast|interested|eager)\b|^(or|and)\b", re.I)
 
 
 _ROLE_WORD = re.compile(

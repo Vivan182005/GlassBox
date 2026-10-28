@@ -320,7 +320,9 @@ class RoleSplitTests(unittest.TestCase):
         from parsing.profile_extractor import _split_roles
         self.assertEqual(_split_roles(["AI Product | Associate Product Manager | Product Analyst"]),
                          ["Associate Product Manager", "Product Analyst"])
-        self.assertEqual(_split_roles(["Data Science"]), ["Data Science"])  # nothing better to keep
+        self.assertEqual(_split_roles(["Data Science"]), [])  # a field: roles come from the skills instead
+        self.assertEqual(_split_roles(["AI/ML undergraduate seeking internship in AI, data science, or product management"]), [])
+        self.assertEqual(_split_roles(["Machine Learning Intern", "Data Analyst"]), ["Machine Learning Intern", "Data Analyst"])
 
 
 class NameTests(unittest.TestCase):
