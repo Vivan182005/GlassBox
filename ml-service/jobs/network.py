@@ -152,14 +152,16 @@ def jsearch(query: str, city: str = "", pages: int = 2, max_age_days: Optional[i
     from ats.profiles import get_profile
     headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": "jsearch.p.rapidapi.com"}
     age = next((v for d, v in sorted(_JSEARCH_AGE.items()) if max_age_days and max_age_days <= d), "month")
-    params = {"query": f"{query} in {city or 'India'}", "page": "1", "num_pages": str(pages), "country": "in", "date_posted": age}
+    params = {"query": f"{query} in {city or 'India'}", "num_pages": str(pages), "country": "in", "date_posted": age}
     if internships:
         params["employment_types"] = "INTERN"
     out: List[Dict[str, Any]] = []
     try:
-        r = requests.get("https://jsearch.p.rapidapi.com/search", headers=headers, timeout=25, params=params)
+        r = requests.get("https://jsearch.p.rapidapi.com/search-v2", headers=headers, timeout=25, params=params)
         r.raise_for_status()
-        for j in r.json().get("data") or []:
+        data = r.json().get("data") or {}
+        # search-v2 returns {"jobs": [...], "cursor": ...}; the retired /search returned the list itself.
+        for j in data.get("jobs") or [] if isinstance(data, dict) else data:
             options = [o.get("apply_link") for o in j.get("apply_options") or [] if o.get("apply_link")]
             apply = j.get("job_apply_link") or j.get("job_google_link") or ""
             # Prefer the company's own ATS link when one of the apply options is it.
