@@ -32,7 +32,10 @@ function buildContext({ view, analysis, roles, jobResults, ratings, applications
     }));
   }
   if (applications?.length) ctx.applications = applications.slice(0, 10).map(a => ({ title: a.title, company: a.company, status: a.status }));
-  if (focusJob) ctx.open_job = { title: focusJob.title, company: focusJob.company, location: focusJob.location };
+  if (focusJob) {
+    ctx.open_job = { title: focusJob.title, company: focusJob.company, location: focusJob.location,
+      description: (focusJob.description || '').slice(0, 2500) || undefined };
+  }
   return ctx;
 }
 
