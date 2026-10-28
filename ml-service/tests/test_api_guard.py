@@ -131,6 +131,14 @@ class EndpointGuardTests(unittest.TestCase):
     def test_malformed_job_id_refused(self):
         self.assertEqual(self.client.get("/api/jobs/description", params={"id": "x y<script>"}).status_code, 400)
 
+    def test_job_site_description_survives_a_restart(self):
+        import main
+        job = {"id": "jsearch:gone-after-restart", "description": "Kept by the app. " * 10}
+        with patch.object(main, "fetch_job_description", return_value={"description": ""}):
+            self.assertTrue(main._jd_for(job).startswith("Kept by the app."))
+        with patch.object(main, "fetch_job_description", return_value={"description": "Fresh from the server " * 5}):
+            self.assertTrue(main._jd_for(job).startswith("Fresh from the server"))
+
     def test_unknown_ats_confirmation_refused(self):
         r = self.client.post("/api/company/confirm", json={"company": "Acme", "ats_id": "not-an-ats"})
         self.assertEqual(r.status_code, 400)

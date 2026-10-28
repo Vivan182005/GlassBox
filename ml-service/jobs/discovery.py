@@ -352,6 +352,10 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     for j in sorted(ranked[:limit] + network_ranked[:60], key=lambda j: j["fit"], reverse=True):
         out = {k: v for k, v in j.items() if k != "description"}
         out["has_description"] = bool(j.get("description")) or not j["id"].startswith("jsearch:")
+        # Job-site descriptions live only in this server's memory, which a restart
+        # or redeploy clears; the app keeps a copy and sends it back with the job.
+        if j["id"].startswith("jsearch:") and j.get("description"):
+            out["description"] = j["description"][:15000]
         h = posted_hours(j)
         out["posted_hours"] = round(h, 1) if h is not None else None
         jobs_out.append(out)

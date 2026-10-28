@@ -275,7 +275,10 @@ class RateRequest(BaseModel):
 
 
 def _jd_for(job: Dict[str, Any]) -> str:
-    return (fetch_job_description(job["id"]).get("description") or "").strip() if job.get("id") else ""
+    jd = (fetch_job_description(job["id"]).get("description") or "").strip() if job.get("id") else ""
+    if not jd and isinstance(job.get("description"), str):
+        jd = job["description"][:20000].strip()  # the copy the app kept from the search
+    return jd
 
 
 def _rate_one(req_resume: str, profile, audit_result, job, cities):

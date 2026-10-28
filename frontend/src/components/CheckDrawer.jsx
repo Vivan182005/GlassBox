@@ -158,7 +158,7 @@ export default function CheckDrawer({ job, analysis, onClose, notify, goScan }) 
 
   useEffect(() => {
     if (!analysis || !job || job.custom) return;
-    run({ job_id: job.id, ats_id: job.ats_id, company: job.company, job_title: job.title });
+    run({ job_id: job.id, jd_text: job.description || null, ats_id: job.ats_id, company: job.company, job_title: job.title });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.id]);
 
