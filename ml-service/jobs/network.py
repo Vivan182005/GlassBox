@@ -4,8 +4,6 @@
 Sources, in order of reliability:
   1. JSearch (RapidAPI) when RAPIDAPI_KEY is set: aggregates LinkedIn, Naukri,
      Indeed, Glassdoor and Google for Jobs listings.
-  1b. Adzuna when ADZUNA_APP_ID and ADZUNA_APP_KEY are set: Indian job boards
-     (Naukri, Shine, TimesJobs, company sites); descriptions are excerpts.
   2. Web search (DuckDuckGo) for company-specific careers pages and listings
      on Indian job sites.
   3. Prebuilt search links on the major job sites, so the user can always
@@ -25,8 +23,6 @@ import requests
 from jobs.boards import india_cities_in, html_to_text
 
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "").strip()
-ADZUNA_APP_ID = os.environ.get("ADZUNA_APP_ID", "").strip()
-ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "").strip()
 
 # Network listings have no API to re-read them by id, so the description seen
 # at search time is kept (memory + disk) for rating and tailoring later.
@@ -69,8 +65,8 @@ def network_description(job_id: str) -> Dict[str, Any]:
     return {"description": hit["description"], "url": hit["url"]}
 
 
-def network_status() -> Dict[str, bool]:
-    return {"jsearch": bool(RAPIDAPI_KEY), "adzuna": bool(ADZUNA_APP_ID and ADZUNA_APP_KEY)}
+def network_status() -> Dict[str, Any]:
+    return {"jsearch": bool(RAPIDAPI_KEY), "jsearch_credits_left": _jsearch_quota["remaining"]}
 
 
 # A listing whose apply link is a company's own Greenhouse, Lever or Ashby
@@ -142,6 +138,14 @@ def search_links(keywords: str, city: str = "") -> List[Dict[str, str]]:
 
 _JSEARCH_AGE = {1: "today", 3: "3days", 7: "week", 30: "month"}
 
+# The free JSearch plan has a small monthly allowance, so identical searches
+# reuse results for a few hours, and searching pauses when RapidAPI reports the
+# allowance nearly spent (rechecked once a day, since it renews monthly).
+_JSEARCH_TTL = 6 * 3600
+_JSEARCH_RESERVE = 5
+_jsearch_cache: Dict[tuple, tuple] = {}
+_jsearch_quota = {"remaining": None, "checked": 0.0}
+
 
 def jsearch(query: str, city: str = "", pages: int = 2, max_age_days: Optional[int] = None,
             internships: bool = False) -> List[Dict[str, Any]]:
@@ -155,9 +159,19 @@ def jsearch(query: str, city: str = "", pages: int = 2, max_age_days: Optional[i
     params = {"query": f"{query} in {city or 'India'}", "num_pages": str(pages), "country": "in", "date_posted": age}
     if internships:
         params["employment_types"] = "INTERN"
+    key = tuple(sorted(params.items()))
+    hit = _jsearch_cache.get(key)
+    if hit and time.time() - hit[0] < _JSEARCH_TTL:
+        return [dict(j) for j in hit[1]]
+    low = _jsearch_quota["remaining"] is not None and _jsearch_quota["remaining"] <= _JSEARCH_RESERVE
+    if low and time.time() - _jsearch_quota["checked"] < 86400:
+        return []
     out: List[Dict[str, Any]] = []
     try:
         r = requests.get("https://jsearch.p.rapidapi.com/search-v2", headers=headers, timeout=25, params=params)
+        left = r.headers.get("x-ratelimit-requests-remaining")
+        if left and left.isdigit():
+            _jsearch_quota.update(remaining=int(left), checked=time.time())
         r.raise_for_status()
         data = r.json().get("data") or {}
         # search-v2 returns {"jobs": [...], "cursor": ...}; the retired /search returned the list itself.
@@ -193,48 +207,9 @@ def jsearch(query: str, city: str = "", pages: int = 2, max_age_days: Optional[i
             })
     except Exception as e:
         print("JSearch failed:", str(e)[:160])
+        return out
+    _jsearch_cache[key] = (time.time(), [dict(j) for j in out])
     remember([j for j in out if j["id"].startswith("jsearch:")])
-    return out
-
-
-def adzuna(query: str, city: str = "", max_age_days: Optional[int] = None, results: int = 50) -> List[Dict[str, Any]]:
-    """Indian listings via Adzuna's API; empty when its keys aren't set."""
-    if not (ADZUNA_APP_ID and ADZUNA_APP_KEY):
-        return []
-    from ats.detector import detect_from_url
-    params = {"app_id": ADZUNA_APP_ID, "app_key": ADZUNA_APP_KEY, "what": query, "results_per_page": results,
-              "content-type": "application/json", "max_days_old": max_age_days or 30, "sort_by": "date"}
-    if city:
-        params["where"] = city
-    out: List[Dict[str, Any]] = []
-    try:
-        r = requests.get("https://api.adzuna.com/v1/api/jobs/in/search/1", params=params, timeout=25)
-        r.raise_for_status()
-        for j in r.json().get("results") or []:
-            loc = (j.get("location") or {}).get("display_name") or "India"
-            url = j.get("redirect_url") or ""
-            ats = detect_from_url(url)
-            out.append({
-                "id": f"adzuna:{j.get('id')}",
-                "title": html_to_text(j.get("title") or ""),
-                "company": (j.get("company") or {}).get("display_name") or "",
-                "domain": None,
-                "location": loc,
-                "cities": india_cities_in(loc),
-                "remote": bool(re.search(r"remote|work from home", f"{loc} {j.get('title', '')}", re.I)),
-                "posted_at": j.get("created"),
-                "posted_days": None,
-                "url": url,
-                "description": html_to_text(j.get("description") or ""),
-                "description_partial": True,
-                "ats_id": ats["id"] if ats else None,
-                "ats_name": ats["name"] if ats else None,
-                "source": "network",
-                "via": "Adzuna",
-            })
-    except Exception as e:
-        print("Adzuna failed:", str(e)[:160])
-    remember(out)
     return out
 
 

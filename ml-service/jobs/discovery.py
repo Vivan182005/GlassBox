@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from core.llm import llm_json
 from jobs.boards import load_registry, fetch_company_jobs, fetch_job_description, posted_hours
-from jobs.network import adzuna, jsearch, network_status, search_links
+from jobs.network import jsearch, network_status, search_links
 from matching.skills_lexicon import find_skills, SOFT_CATEGORY, skill_category
 from matching.ats_check import years_required
 
@@ -252,12 +252,11 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     def fetch(company):
         return company, fetch_company_jobs(company, roles)
 
-    # Job sites (LinkedIn, Naukri, Indeed… via JSearch; Indian boards via
-    # Adzuna) are searched at the same time as the company boards.
+    # Job sites (LinkedIn, Naukri, Indeed, Internshala… via JSearch) are
+    # searched at the same time as the company boards.
     where = cities[0] if cities and cities[0] != "Remote" else ""
     wants_intern = student or any(re.search(r"\bintern", r, re.I) for r in roles)
     site_calls = [(jsearch, (r, where, 1, max_age_days, wants_intern and bool(re.search(r"\bintern", r, re.I)))) for r in roles[:3]]
-    site_calls += [(adzuna, (r, where, max_age_days)) for r in roles[:3]]
     network_jobs: List[Dict[str, Any]] = []
 
     with cf.ThreadPoolExecutor(max_workers=48) as ex:
@@ -332,7 +331,7 @@ def discover_jobs(roles: List[str], skills: List[str], years: float = 0.0, citie
     jobs_out = []
     for j in sorted(ranked[:limit] + network_ranked[:60], key=lambda j: j["fit"], reverse=True):
         out = {k: v for k, v in j.items() if k != "description"}
-        out["has_description"] = bool(j.get("description")) or not j["id"].startswith(("jsearch:", "adzuna:"))
+        out["has_description"] = bool(j.get("description")) or not j["id"].startswith("jsearch:")
         h = posted_hours(j)
         out["posted_hours"] = round(h, 1) if h is not None else None
         jobs_out.append(out)

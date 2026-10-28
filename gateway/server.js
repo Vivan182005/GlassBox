@@ -10,11 +10,24 @@ const ML_SERVICE_URL = (process.env.ML_SERVICE_URL || 'https://glassbox-ml-servi
 const target = new URL(ML_SERVICE_URL);
 const transport = target.protocol === 'https:' ? https : http;
 
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : '*';
+// Only GlassBox's own sites; ALLOWED_ORIGINS adds more. The ML service applies
+// the same list and the rate limits, so this is the first of two checks.
+const allowedOrigins = [
+  'https://glass-box-psi.vercel.app',
+  'https://glass-box1.vercel.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  ...(process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(o => o && o !== '*'),
+];
 
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(cors({ origin: allowedOrigins }));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !allowedOrigins.includes(origin)) {
+    return res.status(403).json({ detail: "This site isn't allowed to use the GlassBox API." });
+  }
+  next();
+});
 
 // Gateway-level health: reports whether the ML service is reachable.
 app.get('/api/gateway/health', (req, res) => {

@@ -96,7 +96,7 @@ function ConfirmProfile({ analysis, roles, setRoles, prefs, setPrefs, skills, on
 // Where results came from, what was hidden, and which job-site sources are off.
 function SourcesNote({ stats }) {
   if (!stats) return null;
-  const off = [!stats.sources?.jsearch && 'LinkedIn, Naukri and Indeed (JSearch)', !stats.sources?.adzuna && 'Indian job boards (Adzuna)'].filter(Boolean);
+  const off = [!stats.sources?.jsearch && 'LinkedIn, Naukri and Indeed (JSearch)'].filter(Boolean);
   return (
     <div className="tiny faint" style={{ margin: '0 4px 14px', lineHeight: 1.6 }}>
       From {stats.companies_scanned} company career pages{stats.network_results ? ` and ${stats.network_results} job-site listings` : ''}.

@@ -29,10 +29,6 @@ services:
         sync: false
       - key: RAPIDAPI_KEY        # JSearch: LinkedIn, Naukri, Indeed, Glassdoor listings
         sync: false
-      - key: ADZUNA_APP_ID       # Adzuna India job boards
-        sync: false
-      - key: ADZUNA_APP_KEY
-        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY

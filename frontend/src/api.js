@@ -15,7 +15,9 @@ const DELAYS = [2000, 4000, 8000, 12000, 15000, 15000];
 http.interceptors.response.use(undefined, async (err) => {
   const cfg = err.config;
   const status = err.response?.status;
-  const retryable = cfg && (RETRYABLE.has(status) || (!err.response && err.code !== 'ECONNABORTED'));
+  // A 429 from GlassBox's own rate limit carries rate_limited; retrying only adds to it.
+  const limited = err.response?.data?.rate_limited;
+  const retryable = cfg && !limited && (RETRYABLE.has(status) || (!err.response && err.code !== 'ECONNABORTED'));
   if (!retryable) throw err;
   cfg.__try = (cfg.__try || 0) + 1;
   if (cfg.__try > DELAYS.length) throw err;

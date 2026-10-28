@@ -12,12 +12,14 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Response
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from core.llm import llm_status
 from core.db import get_supabase
+from core.ratelimit import Limiter, allowed_origins, client_ip, cost_class
 from ats.profiles import ATS_PROFILES, get_profile, public_profile
 from ats.detector import lookup_company, confirm_company_ats, company_board_jobs
 from jobs.boards import load_registry, fetch_job_description, INDIA_CITIES
@@ -35,11 +37,32 @@ from matching.skills_lexicon import _SKILLS
 
 app = FastAPI(title="GlassBox ML Service", description="Resume X-ray, India job network and ATS pass check", version="2.0.0")
 
-allowed = os.environ.get("ALLOWED_ORIGINS", "*")
+ORIGINS = allowed_origins()
+limiter = Limiter()
+
+
+# Registered before CORS so CORS wraps it and the refusals below still reach
+# the app's error messages.
+@app.middleware("http")
+async def guard(request: Request, call_next):
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") not in ORIGINS:
+        return JSONResponse({"detail": "This site isn't allowed to use the GlassBox API."}, status_code=403)
+    if request.url.path.startswith("/api/") and request.method != "OPTIONS":
+        refused = limiter.check(client_ip(request.headers, request.client.host if request.client else None),
+                                cost_class(request.url.path))
+        if refused:
+            message, wait = refused
+            return JSONResponse({"detail": message, "rate_limited": True}, status_code=429,
+                                headers={"Retry-After": str(wait)})
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if allowed == "*" else [o.strip() for o in allowed.split(",")],
-    allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+    allow_origins=ORIGINS, allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["*"],
+    expose_headers=["Content-Disposition", "Retry-After", "X-Resume-Renderer"],
 )
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024

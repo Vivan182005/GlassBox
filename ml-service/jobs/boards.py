@@ -350,7 +350,7 @@ def find_company(slug_or_name: str) -> Optional[Dict[str, Any]]:
 
 def fetch_job_description(job_id: str) -> Dict[str, Any]:
     """job_id has the form '{ats}:{slug}:{native id}'. Returns {description, url}."""
-    if job_id.startswith(("jsearch:", "adzuna:")):
+    if job_id.startswith("jsearch:"):
         from jobs.network import network_description
         return network_description(job_id)
     try:
