@@ -386,7 +386,7 @@ function AnswerInput({ row, value, onChange }) {
     );
   }
   if (row.type === 'textarea' || (typeof value === 'string' && value.length > 90)) {
-    return <textarea className="input" value={value || ''} onChange={e => onChange(e.target.value)} style={{ minHeight: 110 }} />;
+    return <textarea className="input" value={value || ''} onChange={e => onChange(e.target.value)} style={{ minHeight: 110, width: '100%' }} />;
   }
   return <input className="input" value={value || ''} onChange={e => onChange(e.target.value)} style={{ height: 36 }} placeholder={row.status === 'needs_you' ? 'Your answer' : ''} />;
 }
@@ -656,7 +656,7 @@ export default function ApplyDrawer({ job, analysis, sourcePdf, cities, savedAns
                 <div className="card">
                   <div className="card-head"><PenLine size={17} /><div className="h3">Cover letter</div></div>
                   <p className="tiny faint" style={{ marginBottom: 8 }}>Written from your resume for this role. Edit freely; it's copied with your answers.</p>
-                  <textarea className="input" value={cover} onChange={e => setCover(e.target.value)} style={{ minHeight: 260 }} />
+                  <textarea className="input" value={cover} onChange={e => setCover(e.target.value)} style={{ minHeight: 260, width: '100%' }} />
                   <div className="tiny faint" style={{ marginTop: 6 }}>{(cover.match(/\S+/g) || []).length} words</div>
                 </div>
               )}

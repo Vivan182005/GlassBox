@@ -489,8 +489,9 @@ mark.ins { background: rgba(63, 93, 69, 0.14); color: var(--forest); padding: 0 
 .combo-list li.on { background: var(--surface-2); color: var(--ink); }
 
 /* ---------- Ask GlassBox (assistant) ---------- */
+/* Bottom-left, so it never covers the drawers' Next/Approve buttons on the right. */
 .assistant-fab {
-  position: fixed; right: 22px; bottom: 22px; z-index: 70;
+  position: fixed; left: 22px; bottom: 22px; z-index: 70;
   display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 18px;
   border-radius: 999px; border: 1px solid var(--ink); background: var(--ink); color: #f5f1e6;
   font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
@@ -498,7 +499,7 @@ mark.ins { background: rgba(63, 93, 69, 0.14); color: var(--forest); padding: 0 
 }
 .assistant-fab:hover { background: #45392f; }
 .assistant {
-  position: fixed; right: 22px; bottom: 22px; z-index: 70;
+  position: fixed; left: 22px; bottom: 22px; z-index: 70;
   width: min(400px, calc(100vw - 32px)); height: min(600px, calc(100vh - 44px));
   display: flex; flex-direction: column;
   background: var(--card-bg); border: 1px solid var(--border-strong); border-radius: var(--radius);
@@ -522,7 +523,7 @@ mark.ins { background: rgba(63, 93, 69, 0.14); color: var(--forest); padding: 0 
 .assistant-input .btn { height: 44px; padding: 0 14px; }
 .assistant-note { padding: 0 14px 10px; }
 @media (max-width: 640px) {
-  .assistant { right: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; }
-  .assistant-fab { right: 16px; bottom: 16px; }
+  .assistant { left: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; }
+  .assistant-fab { left: 16px; bottom: 16px; }
   .assistant-fab span { display: none; }
 }

@@ -79,6 +79,16 @@ export default function Assistant(props) {
   const input = useRef(null);
 
   useEffect(() => { storage.set('gb.chat', messages.slice(-30)); }, [messages]);
+  // A new resume is a new person: start the conversation over.
+  const resumeKey = (props.analysis?.resume_text || '').slice(0, 200);
+  const lastKey = useRef(storage.get('gb.chatResume', resumeKey));
+  useEffect(() => {
+    if (lastKey.current !== resumeKey) {
+      lastKey.current = resumeKey;
+      setMessages([]);
+    }
+    storage.set('gb.chatResume', resumeKey);
+  }, [resumeKey]);
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [messages, busy, open]);
   useEffect(() => { if (open) input.current?.focus(); }, [open]);
 
