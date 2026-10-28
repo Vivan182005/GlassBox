@@ -145,8 +145,9 @@ class TestFresherExperience(unittest.TestCase):
         self.assertEqual(out, {"full_time": 1.1, "internship": 0.4})
 
     def test_headline_split_into_roles(self):
+        # "AI Product" names a field, not a job, so the real titles fill the search slots.
         self.assertEqual(_split_roles(["AI Product | Associate Product Manager, Product Analyst"]),
-                         ["AI Product", "Associate Product Manager", "Product Analyst"])
+                         ["Associate Product Manager", "Product Analyst"])
 
     def test_ambiguous_aliases(self):
         self.assertEqual(find_skills("Sentence Transformers, n8n onboarding, faster monitoring"), {})
@@ -301,6 +302,14 @@ class DegreeGapTests(unittest.TestCase):
         self.assertIn("postgraduate", out[0]["seniority_note"])
         self.assertEqual(_degree_gap(jobs, "M.Tech"), jobs)  # already postgraduate
         self.assertEqual(_degree_gap(jobs, None), jobs)
+
+
+class RoleSplitTests(unittest.TestCase):
+    def test_field_names_from_a_headline_are_not_roles(self):
+        from parsing.profile_extractor import _split_roles
+        self.assertEqual(_split_roles(["AI Product | Associate Product Manager | Product Analyst"]),
+                         ["Associate Product Manager", "Product Analyst"])
+        self.assertEqual(_split_roles(["Data Science"]), ["Data Science"])  # nothing better to keep
 
 
 class NameTests(unittest.TestCase):

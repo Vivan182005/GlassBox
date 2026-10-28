@@ -255,7 +255,17 @@ def _split_roles(items: List[Any]) -> List[str]:
             part = part.strip(" -–")
             if 2 < len(part) <= 60 and part.lower() not in {o.lower() for o in out}:
                 out.append(part)
-    return out
+    # "AI Product" or "Data" from a headline names a field, not a job: keep it
+    # only when nothing else in the list is an actual job title.
+    titled = [r for r in out if _ROLE_WORD.search(r)]
+    return titled or out
+
+
+_ROLE_WORD = re.compile(
+    r"\b(engineer|developer|analyst|manager|scientist|designer|architect|consultant|intern|associate|lead|owner|"
+    r"specialist|administrator|admin|executive|officer|coordinator|researcher|programmer|tester|writer|strategist|"
+    r"marketer|recruiter|accountant|director|head|trainee|fellow|apprentice|technician|operator|representative|"
+    r"advisor|planner|editor|devops|sre|qa)s?\b", re.I)
 
 
 def _seniority(years: float) -> str:
